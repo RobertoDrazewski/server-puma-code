@@ -10,6 +10,7 @@ import { state, startCollector, history } from './collector.js';
 import * as docker from './docker.js';
 import { briefing, closingQuestion, closingAnswer, pendingNotes, aiStatus } from './briefing.js';
 import { attachTerminal, ensureKey, publicKey } from './terminal.js';
+import * as agent from './agent.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const app = express();
@@ -57,7 +58,7 @@ app.post('/api/auth/logout', (req, res) => {
 
 app.use('/api', requireUser);
 
-const meOut = (u) => ({ ...u, terminal: cfg.terminalEnabled && users.isAdmin(u), terminalMode: cfg.terminalMode, ai: aiStatus() });
+const meOut = (u) => ({ ...u, terminal: cfg.terminalEnabled && users.isAdmin(u), terminalMode: cfg.terminalMode, terminalLabel: cfg.terminalMode === 'local' ? 'shell local' : `${cfg.terminalUser}@vps`, ai: aiStatus() });
 app.get('/api/me', (req, res) => res.json(meOut(req.user)));
 app.post('/api/me/password', async (req, res) => {
   try {
@@ -149,6 +150,42 @@ app.post('/api/containers/:id/restart', requireAdmin, async (req, res) => {
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+// ---------- Puma (asistente) ----------
+app.post('/api/agent', async (req, res) => {
+  try { res.json(await agent.chat(req.user, req.body?.text, Array.isArray(req.body?.history) ? req.body.history : [])); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/agent/confirm', requireAdmin, async (req, res) => {
+  try { res.json(await agent.confirm(req.user, String(req.body?.id || ''), req.body?.accept !== false)); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ---------- Buzón entre Roberto y Mauro ----------
+app.get('/api/people', (req, res) => {
+  res.json(users.listUsers().filter((u) => !u.disabled && u.email !== req.user.email).map((u) => ({ email: u.email, name: u.name, call: u.call, title: u.title, photo: u.photo })));
+});
+app.get('/api/messages/unread', (req, res) => {
+  const rows = db.prepare('SELECT from_email f, COUNT(*) n FROM messages WHERE to_email=? AND read=0 GROUP BY from_email').all(req.user.email);
+  res.json({ count: rows.reduce((a, r) => a + r.n, 0), from: Object.fromEntries(rows.map((r) => [r.f, r.n])) });
+});
+app.get('/api/messages', (req, res) => {
+  const other = String(req.query.with || '').toLowerCase();
+  if (!users.getUser(other)) return res.status(400).json({ error: 'Destinatario inválido' });
+  const rows = db.prepare('SELECT id, ts, from_email, to_email, text, read FROM messages WHERE (from_email=? AND to_email=?) OR (from_email=? AND to_email=?) ORDER BY id DESC LIMIT 50').all(req.user.email, other, other, req.user.email).reverse();
+  db.prepare('UPDATE messages SET read=1 WHERE to_email=? AND from_email=? AND read=0').run(req.user.email, other);
+  res.json(rows);
+});
+app.post('/api/messages', (req, res) => {
+  const to = users.getUser(String(req.body?.to || '').toLowerCase());
+  const text = String(req.body?.text || '').trim().slice(0, 600);
+  if (!to || to.disabled || to.email === req.user.email) return res.status(400).json({ error: 'Destinatario inválido' });
+  if (!text) return res.status(400).json({ error: 'Mensaje vacío' });
+  db.prepare('INSERT INTO messages (ts, from_email, to_email, text) VALUES (?,?,?,?)').run(Math.floor(Date.now() / 1000), req.user.email, to.email, text);
+  audit(req.user.email, 'mensaje', to.email);
+  res.json({ ok: true });
+});
+db.prepare('DELETE FROM messages WHERE ts < ?').run(Math.floor(Date.now() / 1000) - 90 * 86400);
+
 app.get('/api/audit', requireSuper, (_req, res) => {
   res.json(db.prepare('SELECT ts, user, action, detail FROM audit ORDER BY id DESC LIMIT 100').all());
 });
@@ -165,4 +202,5 @@ attachTerminal(server);
 startCollector();
 
 await users.seedUsers();
+users.applyProfiles();
 server.listen(cfg.port, cfg.bindHost, () => console.log(`Estación Puma lista en http://${cfg.bindHost === '0.0.0.0' ? 'localhost' : cfg.bindHost}:${cfg.port}  (Docker: ${cfg.dockerHost})`));

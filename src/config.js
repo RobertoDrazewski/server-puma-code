@@ -58,6 +58,12 @@ export const cfg = {
   terminalIdleMin: Number(process.env.TERMINAL_IDLE_MINUTES) || 15,
 };
 
+// Cargos y trato por defecto (se pueden cambiar desde Accesos).
+export const PROFILES = {
+  'drazewski@puma-code.com': { name: 'Roberto Drazewski', call: 'Roberto', title: 'CEO · Super Admin', boss: true },
+  'security@puma-code.com': { name: 'Mauro Cannizzo', call: 'Mauro', title: 'Co-Founder & Cybersecurity Chief' },
+};
+
 export function displayName(email) {
   if (cfg.names[email]) return cfg.names[email];
   const base = (email || '').split('@')[0].replace(/[._-]+/g, ' ');

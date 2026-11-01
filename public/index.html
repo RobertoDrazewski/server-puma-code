@@ -37,6 +37,8 @@
     <div class="top-title"><b id="view-title">PANEL</b><span>Estación Puma · server.puma-code.com</span></div>
     <div class="top-right">
       <span id="clock" class="mono"></span>
+      <button id="mail-top" class="icon-btn" aria-label="Buzón" title="Buzón"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></svg><b id="mail-badge" hidden></b></button>
+      <div class="who"><b id="who-name"></b><small id="who-title"></small></div>
       <button id="avatar-top" class="avatar" aria-label="Mi perfil"></button>
     </div>
   </header>
@@ -46,6 +48,8 @@
     <div class="menu-box panel">
       <div class="menu-user"><span id="avatar-menu" class="avatar big-av"></span><div><b id="m-name"></b><small id="m-role"></small></div></div>
       <button data-view="panel">Panel</button>
+      <button id="m-mail">Buzón <span id="m-mail-n" class="chip" hidden></span></button>
+      <button id="m-puma">Hablar con Puma</button>
       <button data-view="log">Registro y pendientes</button>
       <button data-view="access" data-super>Accesos</button>
       <button data-view="profile">Mi perfil</button>
@@ -68,17 +72,42 @@
             <img class="frame" src="/assets/porthole.webp" alt="">
           </div>
           <p id="say" class="say" aria-live="polite">Esperando lecturas…</p>
-
-          <div class="term-wrap panel" id="term-wrap">
-            <div class="term-bar"><span>Terminal</span><span class="grow"></span><button id="term-btn" class="btn small">Conectar</button></div>
-            <div id="term"></div>
-            <div id="term-off" class="term-off" hidden></div>
-          </div>
         </div>
 
         <div class="side" id="side-r"></div>
       </div>
 
+      <div class="pipe-div" aria-hidden="true"><i class="wheel"></i><i class="mini"></i></div>
+
+      <!-- Terminal de lado a lado, con el marco de la estación -->
+      <section class="console" id="term-wrap">
+        <div class="console-in">
+          <div class="term-bar"><span>Terminal</span><span class="term-host mono" id="term-host"></span><span class="grow"></span><button id="term-btn" class="btn small">Conectar</button></div>
+          <div id="term"></div>
+          <div id="term-off" class="term-off" hidden></div>
+        </div>
+      </section>
+
+      <div class="dock">
+        <section class="panel pad mail" id="mail">
+          <div class="mail-head">
+            <span id="mail-av" class="avatar"></span>
+            <div class="mail-who"><b id="mail-name">Buzón</b><small id="mail-title"></small></div>
+            <select id="mail-with" aria-label="Conversación" hidden></select>
+          </div>
+          <div id="mail-log" class="mail-log" aria-live="polite"></div>
+          <form id="mail-form" class="mail-form" autocomplete="off">
+            <input id="mail-in" maxlength="600" placeholder="Dejale un mensaje…" aria-label="Mensaje">
+            <button class="btn small" type="submit">Enviar</button>
+          </form>
+        </section>
+        <section class="panel pad recent">
+          <h2>Novedades de a bordo</h2>
+          <ul id="recent" class="events"></ul>
+        </section>
+      </div>
+
+      <div class="pipe-div" aria-hidden="true"><i class="mini"></i><i class="wheel"></i></div>
       <div class="board-head">
         <h2>Proyectos a bordo</h2>
         <div class="controls">
@@ -88,7 +117,10 @@
           <label class="check"><input id="f-group" type="checkbox"> Agrupar</label>
         </div>
       </div>
-      <div id="cards" class="dials"></div>
+      <div id="cards" class="dials rails"></div>
+      <div class="pipe-div" aria-hidden="true"><i class="wheel"></i><i class="mini"></i></div>
+      <div class="board-head"><h2>Sitios web</h2><span class="hint" id="sites-hint"></span></div>
+      <div id="sites-grid" class="dials rails"></div>
     </section>
 
     <!-- REGISTRO -->
@@ -108,7 +140,9 @@
         <h3 class="sub">Nuevo acceso</h3>
         <form id="new-user" class="grid-form">
           <input name="email" type="email" placeholder="Correo" required>
-          <input name="name" type="text" placeholder="Nombre">
+          <input name="name" type="text" placeholder="Nombre completo">
+          <input name="call" type="text" placeholder="Cómo lo llama Puma">
+          <input name="title" type="text" placeholder="Cargo">
           <select name="role"><option value="admin">Admin</option><option value="viewer">Solo lectura</option><option value="superadmin">Superadmin</option></select>
           <input name="password" type="text" placeholder="Clave inicial (mín. 10)" minlength="10" required autocomplete="off">
           <button class="btn" type="submit">Crear acceso</button>
@@ -122,7 +156,7 @@
     <section id="v-profile" class="view" hidden>
       <div class="panel pad profile">
         <h2>Mi perfil</h2>
-        <div class="p-photo"><span id="avatar-profile" class="avatar huge"></span>
+        <div class="p-photo"><span id="avatar-profile" class="avatar huge"></span><div class="p-id"><b id="p-full"></b><small id="p-title"></small><small id="p-mail" class="mono"></small></div>
           <div class="row"><label class="btn small">Subir foto<input id="photo-file" type="file" accept="image/*" hidden></label><button id="photo-del" class="btn small">Quitar</button></div></div>
         <form id="name-form" class="grid-form"><input id="p-name" placeholder="Nombre" required><button class="btn" type="submit">Guardar nombre</button></form>
         <h3 class="sub">Cambiar clave</h3>
@@ -151,6 +185,24 @@
     <button class="btn big" type="submit">Guardar y entrar</button>
   </form>
 </div>
+
+<!-- Puma: chat flotante ("Hey Puma") -->
+<button id="puma-fab" class="fab" aria-label="Hablar con Puma" hidden><img src="/assets/logo-trans.webp" alt=""><span class="fab-dot" hidden></span></button>
+<section id="puma-chat" class="chat panel" aria-label="Chat con Puma" hidden>
+  <header class="chat-head">
+    <img src="/assets/logo-trans.webp" alt="">
+    <div class="chat-title"><b>Puma</b><small id="chat-state">Decí «Hey Puma» o escribime</small></div>
+    <button id="chat-wake" class="icon-btn" type="button" title="Escuchar «Hey Puma»" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 12h2m3-5v10m3-13v16m3-13v10m3-5h2"/></svg></button>
+    <button id="chat-voice" class="icon-btn on" type="button" title="Voz de Puma" aria-pressed="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4Zm12 0a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg></button>
+    <button id="chat-x" class="icon-btn" type="button" aria-label="Cerrar">×</button>
+  </header>
+  <div id="chat-log" class="chat-log" aria-live="polite"></div>
+  <form id="chat-form" class="chat-form" autocomplete="off">
+    <button id="chat-mic" class="icon-btn mic" type="button" aria-label="Dictar con el micrófono" title="Dictar"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+    <input id="chat-in" maxlength="800" placeholder="Escribile a Puma…" aria-label="Mensaje para Puma">
+    <button class="btn small" type="submit">Enviar</button>
+  </form>
+</section>
 
 <aside id="drawer" hidden>
   <div class="drawer-box panel"><button class="x" id="drawer-x" aria-label="Cerrar">×</button><div id="drawer-body"></div></div>

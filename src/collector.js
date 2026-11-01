@@ -97,7 +97,7 @@ function describe(c) {
   const cname = (c.Names?.[0] || '').replace(/^\//, '');
   const name = labels['coolify.resourceName'] || labels['coolify.name'] || cname || c.Id.slice(0, 12);
   let kind = 'app';
-  if (/^coolify/.test(cname) || /^coolify/.test(name)) kind = 'sistema';
+  if (/^coolify/.test(cname) || /^coolify/.test(name) || /^buildx_buildkit/.test(cname) || /^buildx_buildkit/.test(name)) kind = 'sistema';
   else if (labels['coolify.type'] === 'database' || DB_IMAGE.test(c.Image || '')) kind = 'base';
   return { name, kind, project: labels['coolify.projectName'] || '', hosts: hostsFromLabels(labels), cname };
 }

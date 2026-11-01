@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { db, now, audit } from './db.js';
-import { cfg, displayName } from './config.js';
+import { cfg, displayName, PROFILES } from './config.js';
 
 const scrypt = promisify(crypto.scrypt);
 export const ROLES = ['superadmin', 'admin', 'viewer'];
@@ -30,12 +30,13 @@ export function checkPolicy(pw, email = '') {
   return '';
 }
 
-const pub = (u) => u && { email: u.email, name: u.name, role: u.role, photo: u.photo || '', mustChange: !!u.must_change, disabled: !!u.disabled, lastLogin: u.last_login || null, created: u.created };
+const firstName = (n) => String(n || '').trim().split(/\s+/)[0] || '';
+const pub = (u) => u && { email: u.email, name: u.name, call: u.call || firstName(u.name), title: u.title || '', boss: !!PROFILES[u.email]?.boss, role: u.role, photo: u.photo || '', mustChange: !!u.must_change, disabled: !!u.disabled, lastLogin: u.last_login || null, created: u.created };
 export const getUser = (email) => db.prepare('SELECT * FROM users WHERE email=?').get(String(email || '').toLowerCase());
 export const publicUser = pub;
 export const listUsers = () => db.prepare('SELECT * FROM users ORDER BY created').all().map(pub);
 
-export async function createUser({ email, name, role, password, mustChange = true }) {
+export async function createUser({ email, name, role, password, mustChange = true, title = '', call = '' }) {
   email = String(email || '').trim().toLowerCase();
   if (!EMAIL.test(email)) throw new Error('Correo inválido.');
   if (!ROLES.includes(role)) throw new Error('Rol inválido.');
@@ -43,11 +44,14 @@ export async function createUser({ email, name, role, password, mustChange = tru
   const bad = checkPolicy(password, email); if (bad) throw new Error(bad);
   db.prepare('INSERT INTO users (email,name,role,hash,must_change,created) VALUES (?,?,?,?,?,?)')
     .run(email, String(name || displayName(email)).trim().slice(0, 60), role, await hashPw(password), mustChange ? 1 : 0, now());
+  db.prepare('UPDATE users SET title=?, call=? WHERE email=?').run(String(title || '').trim().slice(0, 80), String(call || '').trim().slice(0, 30), email);
 }
 
-export async function updateUser(email, { name, role, password, disabled }) {
+export async function updateUser(email, { name, role, password, disabled, title, call }) {
   const u = getUser(email); if (!u) throw new Error('No existe ese usuario.');
   if (name != null) db.prepare('UPDATE users SET name=? WHERE email=?').run(String(name).trim().slice(0, 60) || u.name, u.email);
+  if (title != null) db.prepare('UPDATE users SET title=? WHERE email=?').run(String(title).trim().slice(0, 80), u.email);
+  if (call != null) db.prepare('UPDATE users SET call=? WHERE email=?').run(String(call).trim().slice(0, 30), u.email);
   if (role != null) {
     if (!ROLES.includes(role)) throw new Error('Rol inválido.');
     if (u.role === 'superadmin' && role !== 'superadmin' && supers() <= 1) throw new Error('Tiene que quedar al menos un superadmin.');
@@ -135,5 +139,16 @@ export async function seedUsers() {
     const pw = cfg.bootstrapPassword || crypto.randomBytes(9).toString('base64url');
     await createUser({ email: w.email, name: displayName(w.email), role: w.role, password: pw, mustChange: true });
     console.log(`\n  Acceso creado: ${w.email} (${w.role})` + (cfg.bootstrapPassword ? '  · clave inicial = BOOTSTRAP_PASSWORD' : `\n  Clave temporal: ${pw}`) + '\n  (se te pide cambiarla al primer ingreso)\n');
+  }
+}
+
+// Completa nombre, trato y cargo de Roberto y Mauro la primera vez (sin pisar lo que ya se cambió a mano).
+export function applyProfiles() {
+  for (const [email, p] of Object.entries(PROFILES)) {
+    const u = getUser(email); if (!u) continue;
+    const auto = !u.name || u.name === displayName(email) || u.name === displayName(email).split(' ')[0];
+    if (auto) db.prepare('UPDATE users SET name=? WHERE email=?').run(p.name, email);
+    if (!u.call) db.prepare('UPDATE users SET call=? WHERE email=?').run(p.call, email);
+    if (!u.title) db.prepare('UPDATE users SET title=? WHERE email=?').run(p.title, email);
   }
 }

@@ -2,7 +2,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const NS = 'http://www.w3.org/2000/svg';
-  const S = { me: null, data: null, events: [], notes: [], voice: true, group: false, open: null, timer: null, lastBrief: '', view: 'panel', termStarted: false };
+  const S = { me: null, data: null, events: [], notes: [], voice: true, group: false, open: null, timer: null, lastBrief: '', view: 'panel', termStarted: false, people: [], mailWith: '', unread: 0, unreadFrom: {} };
   const TITLES = { panel: 'PANEL', log: 'REGISTRO', access: 'ACCESOS', profile: 'MI PERFIL' };
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,8 +35,8 @@
   let voiceEs = null;
   const pickVoice = () => { const v = speechSynthesis.getVoices(); voiceEs = v.find((x) => /es-AR/i.test(x.lang)) || v.find((x) => /es-(MX|US|419)/i.test(x.lang)) || v.find((x) => /^es/i.test(x.lang)) || null; };
   if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
-  function speak(text) {
-    $('say').textContent = text;
+  function speak(text, quiet = false) {
+    if (!quiet) $('say').textContent = text;
     if (!S.voice || !('speechSynthesis' in window)) return Promise.resolve();
     return new Promise((ok) => {
       speechSynthesis.cancel();
@@ -72,11 +72,11 @@
 
   // Dial simple (indicadores del servidor)
   function gauge(label, value, center, sub, base = 'var(--cyan)') {
-    const w = document.createElement('div');
+    const w = document.createElement('div'); w.className = 'gcell';
     const v = Math.max(0, Math.min(100, value || 0));
     w.innerHTML = `<div class="gauge"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="30" fill="rgba(2,8,12,.92)"/>${arc(R1 - 1, v, level(v, base), 5)}
       <text x="50" y="54" text-anchor="middle" fill="#dff7ff" font-family="Share Tech Mono, monospace" font-size="13">${esc(center)}</text></svg><img class="ring" src="/assets/gauge-ring.webp" alt=""></div>
-      <div class="g-cap">${esc(label)}</div><div class="g-sub">${esc(sub || '')}</div>`;
+      <div class="g-plate"><div class="g-cap">${esc(label)}</div><div class="g-sub" title="${esc(sub || '')}">${esc(sub || '')}</div></div>`;
     return w;
   }
 
@@ -88,7 +88,7 @@
     const led = r.status === 'exited' ? 'bad' : r.status === 'degraded' || r.online === false || r.healthy === false ? 'warn' : '';
     const site = (r.sites || [])[0];
     const el = document.createElement('div');
-    el.className = 'dial'; el.tabIndex = 0; el.setAttribute('role', 'button');
+    el.className = 'dial' + (led ? ' ' + led : ''); el.tabIndex = 0; el.setAttribute('role', 'button');
     el.title = `${r.name}\nCPU ${pct(r.cpu)} · RAM ${bytes(r.mem)} (${pct(memPct)} del servidor)`;
     const badge = rank && rank <= 3 && r.cpu > 0.3 ? `<span class="chip top${rank}">#${rank}</span>` : '';
     const kind = { base: 'DB', sistema: 'SYS' }[r.kind] || '';
@@ -98,7 +98,7 @@
       ${arc(R1, cpuV, level(cpuV, 'var(--cyan)'), 3.6)}${arc(R2, memV, 'var(--brass)', 3.6)}
       <text x="50" y="50" text-anchor="middle" fill="#dff7ff" font-family="Share Tech Mono, monospace" font-size="11.5">${pct(r.cpu)}</text>
       <text x="50" y="59.5" text-anchor="middle" fill="#c9964a" font-family="Share Tech Mono, monospace" font-size="6.2">${bytes(r.mem)}</text></svg><img class="ring" src="/assets/gauge-ring.webp" alt=""></div>
-      <div class="d-name"><span class="led ${led}"></span><span class="t">${esc(r.name)}</span>${badge}${kind ? `<span class="chip">${kind}</span>` : ''}</div>
+      <div class="d-name"><span class="led ${led}"></span><span class="t" title="${esc(r.name)}">${esc(r.name)}</span>${badge}${kind ? `<span class="chip">${kind}</span>` : ''}</div>
       <div class="d-line">${stateTxt}${up ? ' · ' + up : ''}</div>
       <div class="d-line">↓ ${rate(r.rx)} · ↑ ${rate(r.tx)}${site?.certDays != null && site.certDays < 21 ? ` · <span class="warn">cert ${site.certDays} d</span>` : ''}</div>`;
     const open = () => openDrawer(r.name);
@@ -148,12 +148,23 @@
     const cmp = { consumo: (a, b) => score(b) - score(a), cpu: (a, b) => b.cpu - a.cpu, ram: (a, b) => b.mem - a.mem, red: (a, b) => b.rx + b.tx - (a.rx + a.tx), estado: (a, b) => problems(b) - problems(a) || score(b) - score(a), nombre: (a, b) => a.name.localeCompare(b.name) }[$('f-sort').value];
     return list.sort(cmp);
   }
+  // Tuberías de latón detrás de cada fila de relojes
+  function drawRails(box) {
+    box.querySelectorAll(':scope > .rail').forEach((n) => n.remove());
+    const dials = [...box.querySelectorAll(':scope > .dial')];
+    if (!dials.length || !box.offsetParent) return;
+    const rows = new Map();
+    dials.forEach((d, i) => { d.style.setProperty('--i', i); if (!rows.has(d.offsetTop)) rows.set(d.offsetTop, d.querySelector('.gauge')?.offsetHeight || 190); });
+    for (const [top, gh] of rows) { const el = document.createElement('div'); el.className = 'rail'; el.style.top = (top + 4 + gh / 2 - 6) + 'px'; box.prepend(el); }
+  }
+  new ResizeObserver(() => { clearTimeout(drawRails.t); drawRails.t = setTimeout(() => { drawRails($('cards')); drawRails($('sites-grid')); }, 120); }).observe(document.body);
   function renderCards() {
     if (!S.data) return;
     const list = visible();
     const apps = (S.data.resources || []).filter((r) => r.kind === 'app').sort((a, b) => b.cpu - a.cpu);
     const rankOf = (r) => (r.kind === 'app' ? apps.indexOf(r) + 1 : 0);
     const box = $('cards'); box.replaceChildren();
+    requestAnimationFrame(() => drawRails(box));
     if (!list.length) { box.innerHTML = S.data.docker.ok ? '<p class="empty">Sin proyectos para mostrar.</p>' : `<p class="empty">Sin conexión con Docker: ${esc(S.data.docker.error)}</p>`; return; }
     if (!S.group) { list.forEach((r) => box.append(projectDial(r, rankOf(r)))); return; }
     const fam = new Map();
@@ -162,15 +173,16 @@
   }
 
   function siteDial(t) {
-    const el = document.createElement('div'); el.className = 'dial';
+    const el = document.createElement('div');
     const up = t.up24 != null ? t.up24 : (t.ok ? 100 : 0);
     const col = t.ok === false ? 'var(--bad)' : up < 99 ? 'var(--warn)' : 'var(--ok)';
     const led = t.ok === false ? 'bad' : t.ok == null ? 'warn' : '';
+    el.className = 'dial' + (led ? ' ' + led : '');
     el.title = `${t.url}\nHTTP ${t.status ?? '–'} · promedio ${t.avgMs ?? '–'} ms`;
     el.innerHTML = `<div class="gauge"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="30" fill="rgba(2,8,12,.92)"/>${arc(R1, t.ok == null ? 0 : up, col, 3.6)}
       <text x="50" y="50" text-anchor="middle" fill="#dff7ff" font-family="Share Tech Mono, monospace" font-size="${t.ms != null ? 11.5 : 9}">${t.ms != null ? t.ms + ' ms' : '…'}</text>
       <text x="50" y="59.5" text-anchor="middle" fill="${col}" font-family="Share Tech Mono, monospace" font-size="6.2">${t.ok === false ? 'SIN RESPUESTA' : t.up24 != null ? t.up24.toFixed(1) + '% 24h' : 'midiendo'}</text></svg><img class="ring" src="/assets/gauge-ring.webp" alt=""></div>
-      <div class="d-name"><span class="led ${led}"></span><span class="t">${esc(t.host)}</span></div>
+      <div class="d-name"><span class="led ${led}"></span><span class="t" title="${esc(t.host)}">${esc(t.host)}</span></div>
       <div class="d-line">${t.owner && t.owner !== 'externo' ? esc(t.owner) : 'sitio externo'}${t.certDays != null ? ` · cert ${t.certDays} d` : ''}</div>`;
     el.addEventListener('click', () => window.open(t.url, '_blank', 'noopener'));
     return el;
@@ -178,6 +190,7 @@
   function renderSites() {
     const list = (S.data?.targets || []).slice().sort((a, b) => (a.ok === false) - (b.ok === false) || a.host.localeCompare(b.host));
     $('sites-grid').replaceChildren(...list.map(siteDial));
+    requestAnimationFrame(() => drawRails($('sites-grid')));
     $('sites-hint').textContent = list.length ? `${list.filter((t) => t.ok).length} de ${list.length} en línea` : 'Sin sitios configurados (se descubren por Traefik o EXTRA_URLS)';
   }
 
@@ -229,16 +242,19 @@
     if (!isSuper()) return;
     const list = await api('/api/users').catch(() => []);
     const t = $('users');
-    t.innerHTML = '<tr><th>Usuario</th><th>Rol</th><th>Último ingreso</th><th>Estado</th><th></th></tr>';
+    t.innerHTML = '<tr><th>Usuario</th><th>Trato</th><th>Cargo</th><th>Rol</th><th>Último ingreso</th><th>Estado</th><th></th></tr>';
     list.forEach((u) => {
       const tr = document.createElement('tr'); const me = u.email === S.me.email;
-      tr.innerHTML = `<td><div class="u-who"><span class="avatar"></span><div><b>${esc(u.name)}</b><br><small class="mono">${esc(u.email)}</small></div></div></td>
+      tr.innerHTML = `<td><div class="u-who"><span class="avatar"></span><div><input class="mini-in" data-a="name" value="${esc(u.name)}" aria-label="Nombre"><small class="mono">${esc(u.email)}</small></div></div></td>
+        <td><input class="mini-in" data-a="call" value="${esc(u.call || '')}" size="9" aria-label="Cómo lo llama Puma"></td>
+        <td><input class="mini-in" data-a="title" value="${esc(u.title || '')}" size="24" aria-label="Cargo"></td>
         <td><select data-a="role" ${me ? 'disabled' : ''}>${['superadmin', 'admin', 'viewer'].map((r) => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE[r]}</option>`).join('')}</select></td>
         <td class="mono">${u.lastLogin ? ago(u.lastLogin) : 'nunca'}</td>
         <td>${u.disabled ? '<span class="d-line"><span class="bad">desactivado</span></span>' : u.mustChange ? '<span class="d-line"><span class="warn">debe cambiar clave</span></span>' : '<span class="d-line"><span class="ok">activo</span></span>'}</td>
         <td><div class="acts"><button class="btn small" data-a="reset">Resetear clave</button>${me ? '' : `<button class="btn small" data-a="toggle">${u.disabled ? 'Activar' : 'Desactivar'}</button><button class="btn small warn" data-a="del">Borrar</button>`}</div></td>`;
       setAvatar(tr.querySelector('.avatar'), u);
       const act = async (body, ok) => { try { await api(`/api/users/${encodeURIComponent(u.email)}`, { method: 'PATCH', body }); renderAccess(); if (ok) alert(ok); } catch (e) { alert(e.message); renderAccess(); } };
+      ['name', 'call', 'title'].forEach((k) => { const i = tr.querySelector(`[data-a=${k}]`); i.onchange = () => act({ [k]: i.value }); });
       tr.querySelector('[data-a=role]').onchange = (e) => act({ role: e.target.value });
       tr.querySelector('[data-a=reset]').onclick = () => { const p = prompt(`Nueva clave temporal para ${u.email} (mín. 10 caracteres). Tendrá que cambiarla al entrar.`); if (p) act({ password: p }, 'Clave reseteada.'); };
       const tg = tr.querySelector('[data-a=toggle]'); if (tg) tg.onclick = () => act({ disabled: !u.disabled });
@@ -257,6 +273,7 @@
   /* ---------- Perfil ---------- */
   function renderProfile() {
     setAvatar($('avatar-profile'), S.me); $('p-name').value = S.me.name;
+    $('p-full').textContent = S.me.name; $('p-title').textContent = [S.me.title, ROLE[S.me.role]].filter(Boolean).join(' · '); $('p-mail').textContent = S.me.email;
   }
   $('name-form').onsubmit = async (e) => { e.preventDefault(); try { await api('/api/me/name', { method: 'POST', body: { name: $('p-name').value } }); S.me.name = $('p-name').value; paintMe(); } catch (er) { alert(er.message); } };
   $('pw-form').onsubmit = async (e) => {
@@ -280,7 +297,8 @@
   /* ---------- Navegación ---------- */
   function paintMe() {
     setAvatar($('avatar-top'), S.me); setAvatar($('avatar-menu'), S.me);
-    $('m-name').textContent = S.me.name; $('m-role').textContent = ROLE[S.me.role];
+    $('m-name').textContent = S.me.name; $('m-role').textContent = S.me.title || ROLE[S.me.role];
+    $('who-name').textContent = S.me.name; $('who-title').textContent = S.me.title || ROLE[S.me.role];
     document.querySelectorAll('[data-super]').forEach((b) => { b.hidden = !isSuper(); });
   }
   function show(view) {
@@ -302,9 +320,10 @@
   /* ---------- Datos ---------- */
   async function refresh() {
     try {
-      const [st, ev, nt] = await Promise.all([api('/api/state'), api('/api/events?limit=40'), api('/api/notes')]);
+      const [st, ev, nt, un] = await Promise.all([api('/api/state'), api('/api/events?limit=40'), api('/api/notes'), api('/api/messages/unread').catch(() => ({ count: 0, from: {} }))]);
       S.data = st; S.events = ev; S.notes = nt;
-      renderSides(); renderCards(); renderSites(); renderEvents();
+      renderSides(); renderCards(); renderSites(); renderEvents(); renderRecent();
+      setUnread(un);
     } catch (e) { if (e.status === 401) location.reload(); else $('say').textContent = 'Sin conexión con la estación: ' + e.message; }
   }
   async function brief(force) {
@@ -318,7 +337,7 @@
   async function connectTerm() {
     if (!S.me.terminal) { termMsg(S.me.role === 'viewer' ? 'Tu rol es de solo lectura: la terminal es para administradores.' : 'La terminal está desactivada (TERMINAL_ENABLED=0).'); $('term-btn').hidden = true; return; }
     if (ws) { ws.close(); return; }
-    termMsg(''); $('term-btn').textContent = 'Desconectar';
+    termMsg(''); $('term-btn').textContent = 'Desconectar'; $('term-host').textContent = S.me.terminalLabel || '';
     if (!term) {
       term = new Terminal({ cursorBlink: true, fontFamily: '"Share Tech Mono", monospace', fontSize: 13, theme: { background: '#010609', foreground: '#cdeff8', cursor: '#38e8ff' } });
       fitAddon = new FitAddon.FitAddon(); term.loadAddon(fitAddon); term.open($('term'));
@@ -363,10 +382,158 @@
   $('m-voice').onclick = () => { S.voice = !S.voice; if (!S.voice) speechSynthesis.cancel(); setEye('idle'); $('m-voice').textContent = 'Voz: ' + (S.voice ? 'activada' : 'silenciada'); };
   $('say').onclick = () => { if (S.lastBrief) speak(S.lastBrief); };
 
+  /* ---------- Novedades, buzón ---------- */
+  function renderRecent() {
+    $('recent').innerHTML = S.events.length ? S.events.slice(0, 7).map((e) => `<li class="${esc(e.level)}"><time>${ago(e.ts)}</time><span>${esc(e.message)}</span></li>`).join('') : '<li class="empty">Sin novedades.</li>';
+  }
+  const stamp = (ts) => new Date(ts * 1000).toLocaleString('es-AR', { timeZone: 'America/Argentina/Mendoza', hour12: false, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  function setUnread(un) {
+    const n = un.count || 0, changed = n !== S.unread;
+    S.unread = n; S.unreadFrom = un.from || {};
+    $('mail-badge').hidden = !n; $('mail-badge').textContent = n;
+    $('m-mail-n').hidden = !n; $('m-mail-n').textContent = n;
+    if (S.view === 'panel' && document.visibilityState === 'visible' && (changed || (S.unreadFrom[S.mailWith] || 0) > 0)) loadMail();
+  }
+  async function initMail() {
+    S.people = await api('/api/people').catch(() => []);
+    const sel = $('mail-with');
+    sel.innerHTML = S.people.map((p) => `<option value="${esc(p.email)}">${esc(p.call || p.name)}</option>`).join('');
+    sel.hidden = S.people.length < 2;
+    S.mailWith = S.people[0]?.email || '';
+    sel.value = S.mailWith;
+    sel.onchange = () => { S.mailWith = sel.value; loadMail(); };
+    $('mail-form').hidden = !S.mailWith;
+    if (!S.mailWith) { $('mail-name').textContent = 'Buzón'; $('mail-log').innerHTML = '<p class="empty">No hay otra persona con acceso para dejarle mensajes.</p>'; return; }
+    loadMail();
+  }
+  async function loadMail() {
+    const who = S.people.find((p) => p.email === S.mailWith); if (!who) return;
+    $('mail-name').textContent = who.name; $('mail-title').textContent = who.title || '';
+    setAvatar($('mail-av'), who);
+    const rows = await api('/api/messages?with=' + encodeURIComponent(S.mailWith)).catch(() => null);
+    if (!rows) return;
+    const log = $('mail-log'), stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+    log.innerHTML = rows.length ? rows.map((m) => `<div class="msg${m.from_email === S.me.email ? ' me' : ''}">${esc(m.text)}<time>${stamp(m.ts)}</time></div>`).join('') : `<p class="empty">Todavía no hay mensajes. Dejale uno a ${esc(who.call || who.name)}.</p>`;
+    if (stick || rows.length < 4) log.scrollTop = log.scrollHeight;
+    if (S.unreadFrom[S.mailWith]) { S.unread = Math.max(0, S.unread - S.unreadFrom[S.mailWith]); S.unreadFrom[S.mailWith] = 0; $('mail-badge').hidden = !S.unread; $('mail-badge').textContent = S.unread; $('m-mail-n').hidden = !S.unread; $('m-mail-n').textContent = S.unread; }
+  }
+  $('mail-form').onsubmit = async (e) => {
+    e.preventDefault(); const t = $('mail-in').value.trim(); if (!t || !S.mailWith) return;
+    $('mail-in').value = '';
+    try { await api('/api/messages', { method: 'POST', body: { to: S.mailWith, text: t } }); loadMail(); } catch (er) { alert(er.message); $('mail-in').value = t; }
+  };
+  const goMail = () => { $('menu').hidden = true; show('panel'); setTimeout(() => { $('mail').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('mail-in').focus({ preventScroll: true }); loadMail(); }, 60); };
+  $('mail-top').onclick = goMail; $('m-mail').onclick = goMail;
+
+  /* ---------- Puma: chat flotante ("Hey Puma") ---------- */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const CH = { open: false, hist: [], wake: false, wakeRec: null, awaiting: 0, speaking: false, voice: true, mic: null, started: false };
+  const norm = (t) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const WAKE = /\b(?:hey|ey|hei|hay|oye|ok|hola)[\s,.]*puma\b[\s,.:;!?-]*/;
+  const chatState = (t) => { $('chat-state').textContent = t; };
+  const idleState = () => chatState(CH.wake ? 'Escuchando «Hey Puma»…' : 'Decí «Hey Puma» o escribime');
+
+  function bubble(role, text) {
+    const d = document.createElement('div'); d.className = 'msg' + (role === 'user' ? ' me' : '');
+    d.textContent = text; $('chat-log').append(d); $('chat-log').scrollTop = $('chat-log').scrollHeight; return d;
+  }
+  function proposal(p) {
+    const d = document.createElement('div'); d.className = 'prop';
+    d.innerHTML = `<b>Puma necesita tu autorización</b><span>${esc(p.label)}</span><div class="row"><button class="btn small" data-ok>Autorizar</button><button class="btn small warn" data-no>Rechazar</button></div>`;
+    const go = async (accept) => {
+      d.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+      try {
+        const out = await api('/api/agent/confirm', { method: 'POST', body: { id: p.id, accept } });
+        d.remove(); const b = bubble('puma', out.text); chatSpeak(out.text);
+        if (accept && out.done) { refresh(); loadMail(); }
+        return b;
+      } catch (er) { d.remove(); bubble('puma', er.message); }
+    };
+    d.querySelector('[data-ok]').onclick = () => go(true);
+    d.querySelector('[data-no]').onclick = () => go(false);
+    $('chat-log').append(d); $('chat-log').scrollTop = $('chat-log').scrollHeight;
+  }
+  function chatSpeak(text) {
+    if (!CH.voice || !('speechSynthesis' in window)) return Promise.resolve();
+    pauseWake(); CH.speaking = true;
+    return speak(text, true).finally(() => { CH.speaking = false; resumeWake(); });
+  }
+  async function sendChat(text) {
+    text = String(text || '').trim(); if (!text) return;
+    openChat(); bubble('user', text); chatState('Pensando…');
+    const wait = bubble('puma', '…');
+    try {
+      const out = await api('/api/agent', { method: 'POST', body: { text, history: CH.hist.slice(-8) } });
+      wait.textContent = out.reply;
+      CH.hist.push({ role: 'user', content: text }, { role: 'assistant', content: out.reply });
+      if (out.proposal) proposal(out.proposal);
+      idleState(); await chatSpeak(out.reply);
+    } catch (e) { wait.textContent = 'No pude responder: ' + e.message; idleState(); }
+  }
+  function openChat() {
+    if (!CH.open) {
+      CH.open = true; $('puma-chat').hidden = false;
+      if (!CH.started) { CH.started = true; const n = S.me.call || S.me.name; const g = S.me.boss ? `Hola ${n}, jefe. Decime qué necesitás.` : `Hola ${n}. Contame qué necesitás: estado de los sistemas, seguridad o un aviso para Roberto.`; bubble('puma', g); }
+      idleState();
+    }
+    setTimeout(() => $('chat-in').focus({ preventScroll: true }), 50);
+  }
+  const closeChat = () => { CH.open = false; $('puma-chat').hidden = true; speechSynthesis.cancel(); setEye('idle'); };
+
+  // Escucha de fondo: despierta con «Hey Puma»
+  function heard(text) {
+    const n = norm(text), m = n.match(WAKE);
+    if (m) {
+      const rest = text.slice(m.index + m[0].length).trim();
+      openChat();
+      if (rest.split(/\s+/).filter(Boolean).length >= 2) { CH.awaiting = 0; sendChat(rest); }
+      else { CH.awaiting = Date.now() + 9000; chatState('Te escucho…'); setEye('listening'); }
+    } else if (CH.awaiting > Date.now()) { CH.awaiting = 0; setEye('idle'); sendChat(text); }
+  }
+  function startWake() {
+    if (!SR) { chatState('Este navegador no permite escuchar por voz'); setWake(false); return; }
+    if (CH.wakeRec || !CH.wake || CH.speaking || CH.mic) return;
+    const r = new SR(); r.lang = 'es-AR'; r.continuous = true; r.interimResults = false;
+    r.onresult = (e) => { for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) heard(e.results[i][0].transcript.trim()); };
+    r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { setWake(false); chatState('Permiso de micrófono denegado'); } };
+    r.onend = () => { CH.wakeRec = null; if (CH.wake && !CH.speaking && !CH.mic) setTimeout(startWake, 400); };
+    try { r.start(); CH.wakeRec = r; } catch { /* ya activo */ }
+  }
+  function pauseWake() { const r = CH.wakeRec; CH.wakeRec = null; try { r?.abort(); } catch { /* nada */ } }
+  function resumeWake() { if (CH.wake) setTimeout(startWake, 500); }
+  function setWake(on) {
+    CH.wake = on; $('chat-wake').classList.toggle('on', on); $('chat-wake').setAttribute('aria-pressed', on);
+    $('puma-fab').classList.toggle('listening', on);
+    try { localStorage.setItem('puma.wake', on ? '1' : '0'); } catch { /* sin storage */ }
+    if (on) startWake(); else pauseWake();
+    if (CH.open) idleState();
+  }
+  function initChat() {
+    $('puma-fab').hidden = false;
+    let saved = '0'; try { saved = localStorage.getItem('puma.wake') || '0'; } catch { /* sin storage */ }
+    if (saved === '1' && SR && !CH.wake) setWake(true);
+  }
+  $('puma-fab').onclick = () => (CH.open ? closeChat() : openChat());
+  $('chat-x').onclick = closeChat;
+  $('m-puma').onclick = () => { $('menu').hidden = true; openChat(); };
+  $('chat-wake').onclick = () => setWake(!CH.wake);
+  $('chat-voice').onclick = () => { CH.voice = !CH.voice; $('chat-voice').classList.toggle('on', CH.voice); $('chat-voice').setAttribute('aria-pressed', CH.voice); if (!CH.voice) { speechSynthesis.cancel(); setEye('idle'); } };
+  $('chat-form').onsubmit = (e) => { e.preventDefault(); const t = $('chat-in').value; $('chat-in').value = ''; sendChat(t); };
+  $('chat-mic').onclick = () => {
+    if (!SR) { alert('Tu navegador no permite dictado por voz; escribile a Puma.'); return; }
+    if (CH.mic) { CH.mic.stop(); return; }
+    pauseWake(); const b = $('chat-mic'); b.classList.add('live'); chatState('Te escucho…'); let last = '';
+    CH.mic = listen((t) => { last = t; $('chat-in').value = t; }, () => {
+      CH.mic = null; b.classList.remove('live'); idleState(); resumeWake();
+      const t = last.trim(); if (t) { $('chat-in').value = ''; sendChat(t.replace(WAKE, '').trim() || t); }
+    });
+    if (!CH.mic) { b.classList.remove('live'); resumeWake(); }
+  };
+
   /* ---------- Acceso ---------- */
   function enter(speakBrief) {
     $('gate').hidden = true; $('app').hidden = false;
-    paintMe(); show('panel');
+    paintMe(); show('panel'); initMail(); initChat();
     refresh().then(() => { S.timer = setInterval(refresh, Math.max(5, S.data?.sampleSec || 30) * 1000); });
     if (S.me.terminal && !S.termStarted) { S.termStarted = true; connectTerm(); } else if (!S.me.terminal) connectTerm();
     if (speakBrief) brief(false); else $('say').textContent = 'Tocá el mensaje o el menú → Informe hablado para escuchar el informe.';
@@ -390,7 +557,7 @@
 
   ['q', 'f-kind', 'f-sort'].forEach((id) => $(id).addEventListener('input', renderCards));
   $('f-group').onchange = (e) => { S.group = e.target.checked; renderCards(); };
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (!$('drawer').hidden) closeDrawer(); else $('menu').hidden = true; } });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (!$('drawer').hidden) closeDrawer(); else if (!$('menu').hidden) $('menu').hidden = true; else if (CH.open) closeChat(); } });
   setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('es-AR', { hour12: false, timeZone: 'America/Argentina/Mendoza' }); }, 1000);
 
   // ¿Ya hay sesión abierta?

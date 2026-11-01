@@ -13,18 +13,18 @@ function localParts(date = new Date()) {
   return { day: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24 };
 }
 const today = () => localParts().day;
-const tomorrow = () => localParts(new Date(Date.now() + 86400e3)).day;
+export const tomorrow = () => localParts(new Date(Date.now() + 86400e3)).day;
 function greeting() {
   const h = localParts().hour;
   return h < 6 ? 'Buenas noches' : h < 13 ? 'Buen día' : h < 20 ? 'Buenas tardes' : 'Buenas noches';
 }
 
 // ---------- IA (opcional) ----------
-async function ai(messages, { json = false, max = 260 } = {}) {
+export async function ai(messages, { json = false, max = 260, bucket = '', cap = cfg.aiDailyCalls } = {}) {
   if (!cfg.openaiKey) return null;
-  const day = new Date().toISOString().slice(0, 10);
+  const day = new Date().toISOString().slice(0, 10) + bucket;
   const used = db.prepare('SELECT calls FROM ai_usage WHERE day=?').get(day)?.calls || 0;
-  if (used >= cfg.aiDailyCalls) return null;
+  if (used >= cap) return null;
   db.prepare('INSERT INTO ai_usage (day, calls) VALUES (?,1) ON CONFLICT(day) DO UPDATE SET calls = calls + 1').run(day);
   try {
     const body = { model: cfg.openaiModel, messages, max_completion_tokens: max };
@@ -55,6 +55,28 @@ export function pendingNotes() {
   return db.prepare('SELECT id, ts, user, kind, text, due FROM notes WHERE done=0 AND (due IS NULL OR due <= ?) ORDER BY id DESC LIMIT 20').all(today());
 }
 
+// Estado de los sistemas de seguridad con datos reales del panel.
+export function securityFacts() {
+  const since = now() - 86400;
+  const failed = db.prepare("SELECT COUNT(*) c FROM audit WHERE action='login-fallido' AND ts>?").get(since).c;
+  const logins = db.prepare("SELECT COUNT(*) c FROM audit WHERE action='login' AND ts>?").get(since).c;
+  const terminal = db.prepare("SELECT COUNT(*) c FROM audit WHERE action='terminal-abierta' AND ts>?").get(since).c;
+  const certs = state.targets.filter((t) => t.certDays != null).map((t) => ({ sitio: t.host, dias: t.certDays })).sort((a, b) => a.dias - b.dias);
+  const unhealthy = state.resources.flatMap((r) => r.containers).filter((c) => c.healthy === false).map((c) => c.name);
+  return {
+    accesos_fallidos_24h: failed,
+    ingresos_24h: logins,
+    sesiones_terminal_24h: terminal,
+    certificados_total: certs.length,
+    certificado_mas_cercano: certs[0] || null,
+    contenedores_con_falla_de_salud: unhealthy,
+    sitios_sin_respuesta: state.targets.filter((t) => t.ok === false).map((t) => t.host),
+    docker_conectado: !!state.docker.ok,
+    terminal_web: cfg.terminalEnabled ? `activa (${cfg.terminalMode})` : 'desactivada',
+    capa_cloudflare_access: cfg.cfTeamDomain ? 'activa' : 'no configurada',
+  };
+}
+
 export function buildFacts(user) {
   const h = state.host;
   const apps = state.resources.filter((r) => r.kind !== 'sistema');
@@ -66,8 +88,12 @@ export function buildFacts(user) {
   const byCpu = [...apps].sort((a, b) => b.cpu - a.cpu).slice(0, 3).map((r) => ({ nombre: r.name, cpu: Math.round(r.cpu * 10) / 10 }));
   const byMem = [...apps].sort((a, b) => b.mem - a.mem).slice(0, 3).map((r) => ({ nombre: r.name, ram_mb: Math.round(r.mem / 1048576) }));
   return {
-    usuario: user.name,
+    usuario: user.call || user.name,
+    cargo: user.title || '',
+    es_el_jefe: !!user.boss,
     franja: greeting(),
+    mensajes_sin_leer: db.prepare('SELECT COUNT(*) c FROM messages WHERE to_email=? AND read=0').get(user.email).c,
+    seguridad: securityFacts(),
     docker: state.docker.ok ? 'conectado' : `sin conexión (${state.docker.error})`,
     servidor: h ? {
       cpu_pct: Math.round(h.cpu),
@@ -92,7 +118,7 @@ export function buildFacts(user) {
 }
 
 function template(f) {
-  const parts = [`${f.franja}, ${f.usuario}.`];
+  const parts = [`${f.franja}, ${f.es_el_jefe ? 'jefe ' : ''}${f.usuario}.`];
   if (!f.servidor) return `${parts[0]} Todavía estoy tomando las primeras lecturas del servidor.`;
   const p = f.proyectos;
   if (f.docker !== 'conectado') parts.push('No logro conectarme con Docker, revisá el proxy de socket.');
@@ -104,9 +130,22 @@ function template(f) {
   if (f.mayor_consumo_cpu[0]) parts.push(`El que más consume es ${f.mayor_consumo_cpu[0].nombre}.`);
   if (f.certificados_por_vencer.length) parts.push(`Ojo con certificados por vencer: ${f.certificados_por_vencer.join(', ')}.`);
   if (f.novedades_desde_ultima_vez.length) parts.push(`Desde tu última visita hubo ${f.novedades_desde_ultima_vez.length} novedades; las ves en el registro.`);
+  const sg = f.seguridad;
+  if (!f.es_el_jefe) {
+    parts.push(`Reporte de seguridad: ${sg.accesos_fallidos_24h} ${sg.accesos_fallidos_24h === 1 ? 'intento fallido' : 'intentos fallidos'} de acceso en 24 horas, ${sg.ingresos_24h} ${sg.ingresos_24h === 1 ? 'ingreso' : 'ingresos'} al panel, terminal web ${sg.terminal_web}.`);
+    if (sg.certificado_mas_cercano) parts.push(`El certificado más cercano a vencer es el de ${sg.certificado_mas_cercano.sitio}, en ${sg.certificado_mas_cercano.dias} días.`);
+    if (sg.contenedores_con_falla_de_salud.length) parts.push(`Contenedores con falla de salud: ${sg.contenedores_con_falla_de_salud.join(', ')}.`);
+  } else if (sg.accesos_fallidos_24h > 2) parts.push(`Ojo: hubo ${sg.accesos_fallidos_24h} intentos fallidos de acceso al panel en las últimas 24 horas.`);
+  if (f.mensajes_sin_leer) parts.push(`Tenés ${f.mensajes_sin_leer} ${f.mensajes_sin_leer === 1 ? 'mensaje sin leer' : 'mensajes sin leer'} en el buzón.`);
   if (f.pendientes.length) parts.push(`Tenés ${f.pendientes.length} ${f.pendientes.length === 1 ? 'pendiente' : 'pendientes'}: ${f.pendientes.slice(0, 3).join('; ')}.`);
   return parts.join(' ');
 }
+
+export const PERSONA = 'Sos Puma, el ingeniero de a bordo de la Estación Puma, el panel del servidor de Puma Code. Hablás en español rioplatense, tono profesional y cercano. Roberto Drazewski es el CEO y tu jefe: cuando le hables, llamalo "Roberto" y también "jefe" de forma natural. Mauro Cannizzo es co-founder y jefe de ciberseguridad: llamalo "Mauro" y asistilo en todo lo que pregunte, con foco en seguridad. Usá solo datos reales recibidos y no inventes nada.';
+const SYSTEM_BRIEF = PERSONA + ' Armá el informe de bienvenida: frases cortas pensadas para leerse en voz alta, máximo 110 palabras, sin listas, sin emojis, sin markdown. Empezá saludando por el nombre según la franja horaria. Si hay problemas, mencionalos primero. Si es_el_jefe es falso (Mauro), incluí un reporte breve del estado de los sistemas de seguridad con los datos de "seguridad" (accesos fallidos, certificados, terminal, contenedores con falla). Si hay mensajes sin leer, avisalo. Si hay pendientes, cerrá recordándolos.';
+
+// Informe breve sin IA (respaldo del chat cuando no hay clave de OpenAI).
+export const quickReport = (user) => template(buildFacts(user));
 
 const cache = new Map();
 export async function briefing(user, force = false) {
@@ -114,9 +153,9 @@ export async function briefing(user, force = false) {
   if (!force && hit && Date.now() - hit.t < 10 * 60e3) return hit.out;
   const facts = buildFacts(user);
   let text = await ai([
-    { role: 'system', content: 'Sos el ingeniero de a bordo de la Estación Puma, el panel del servidor de Puma Code. Hablás en español rioplatense, tono profesional y cercano, con frases cortas pensadas para leerse en voz alta. Máximo 90 palabras. Sin listas, sin emojis, sin markdown. Usá solo los datos recibidos y no inventes nada. Empezá saludando por el nombre según la franja horaria. Si hay problemas, mencionalos primero. Si hay pendientes, cerrá recordándolos.' },
+    { role: 'system', content: SYSTEM_BRIEF },
     { role: 'user', content: JSON.stringify(facts) },
-  ]);
+  ], { max: 360 });
   const usedAi = !!text;
   if (!text) text = template(facts);
   const out = { text, ai: usedAi, facts };
@@ -127,7 +166,7 @@ export async function briefing(user, force = false) {
 
 // ---------- Cierre de jornada ----------
 export function closingQuestion(user) {
-  return `${user.name}, antes de apagar: ¿quedó todo en orden? ¿Dejás algo pendiente o querés que te agende algún trabajo para mañana?`;
+  return `${user.call || user.name}, antes de apagar: ¿quedó todo en orden? ¿Dejás algo pendiente o querés que te agende algún trabajo para mañana?`;
 }
 
 const NOTHING = /^\s*(no|nada|todo (bien|ok|en orden)|ok|listo|sin pendientes|no,? (nada|gracias)|está todo bien)[\s.!]*$/i;
@@ -157,6 +196,6 @@ export async function closingAnswer(user, text) {
   const bits = [];
   if (pend.length) bits.push(`dejé anotado ${pend.length === 1 ? 'un pendiente' : pend.length + ' pendientes'}`);
   if (man.length) bits.push(`agendé ${man.length === 1 ? 'un trabajo' : man.length + ' trabajos'} para mañana`);
-  const reply = bits.length ? `Perfecto, ${bits.join(' y ')}. Te lo recuerdo apenas enciendas la estación. Hasta pronto, ${user.name}.` : `Entendido, todo en orden. Hasta pronto, ${user.name}.`;
+  const reply = bits.length ? `Perfecto, ${bits.join(' y ')}. Te lo recuerdo apenas enciendas la estación. Hasta pronto, ${user.call || user.name}.` : `Entendido, todo en orden. Hasta pronto, ${user.call || user.name}.`;
   return { reply, pendientes: pend, manana: man };
 }

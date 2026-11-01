@@ -22,8 +22,14 @@ CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, ts IN
 CREATE TABLE IF NOT EXISTS ai_usage (day TEXT PRIMARY KEY, calls INTEGER);
 CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, role TEXT, hash TEXT, photo TEXT, must_change INTEGER DEFAULT 1, created INTEGER, last_login INTEGER, disabled INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS auth_sessions (hash TEXT PRIMARY KEY, email TEXT, exp INTEGER, ts INTEGER);
+CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, from_email TEXT, to_email TEXT, text TEXT, read INTEGER DEFAULT 0);
+CREATE INDEX IF NOT EXISTS idx_messages ON messages (to_email, read);
 CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, user TEXT, action TEXT, detail TEXT);
 `);
+
+for (const col of ['title', 'call']) {
+  try { db.exec(`ALTER TABLE users ADD COLUMN ${col} TEXT DEFAULT ''`); } catch { /* ya existe */ }
+}
 
 export const now = () => Math.floor(Date.now() / 1000);
 
