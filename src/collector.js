@@ -242,19 +242,22 @@ function syncTargets(list) {
 
 async function checkOne(t) {
   const t0 = Date.now();
-  let ok = false, status = 0;
-  try {
-    const r = await fetch(t.url, { redirect: 'follow', signal: AbortSignal.timeout(10000), headers: { 'user-agent': 'PumaStation/1.0 (+uptime)' } });
-    status = r.status;
-    ok = r.status < 500; // 404 de una API sin ruta raíz sigue siendo "en línea"
-    await r.body?.cancel?.();
-  } catch { ok = false; }
+  let ok = false, status = 0, errCode = '';
+  for (let intento = 0; intento < 2 && !ok; intento++) {
+    if (intento) await new Promise((r) => setTimeout(r, 2500)); // un reintento antes de dar el sitio por caído
+    try {
+      const r = await fetch(t.url, { redirect: 'follow', signal: AbortSignal.timeout(10000), headers: { 'user-agent': 'PumaStation/1.0 (+uptime)' } });
+      status = r.status;
+      ok = r.status < 500; // 404/403 (desafío de Cloudflare) de una API sin ruta raíz sigue siendo "en línea"
+      await r.body?.cancel?.();
+    } catch (e) { ok = false; errCode = e?.cause?.code || e?.name || 'error'; }
+  }
   const ms = Date.now() - t0;
   db.prepare('INSERT INTO checks VALUES (?,?,?,?,?)').run(now(), t.url, ok ? 1 : 0, ms, status);
   const was = t.ok;
   t.fails = ok ? 0 : t.fails + 1;
   t.ok = ok; t.ms = ms; t.status = status; t.checkedAt = Date.now();
-  if (!ok && t.fails === 2) addEvent('critical', 'sitio-caido', t.owner, `${t.host} no responde (${status || 'sin conexión'})`);
+  if (!ok && t.fails === 2) addEvent('critical', 'sitio-caido', t.owner, `${t.host} no responde (${status || `sin conexión${errCode ? ': ' + errCode : ''}`})`);
   if (ok && was === false) addEvent('info', 'sitio-ok', t.owner, `${t.host} volvió a responder`);
   const row = db.prepare('SELECT AVG(ok) a, AVG(ms) m FROM checks WHERE target=? AND ts>?').get(t.url, now() - 86400);
   t.up24 = row.a == null ? null : Math.round(row.a * 1000) / 10;
