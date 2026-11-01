@@ -11,6 +11,7 @@ import * as docker from './docker.js';
 import { briefing, closingQuestion, closingAnswer, pendingNotes, aiStatus } from './briefing.js';
 import { attachTerminal, ensureKey, publicKey } from './terminal.js';
 import * as agent from './agent.js';
+import { synthesize, voiceStatus } from './voice.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const app = express();
@@ -23,7 +24,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Content-Security-Policy',
-    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'");
+    "default-src 'self'; img-src 'self' data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none'");
   next();
 });
 
@@ -126,6 +127,15 @@ app.post('/api/briefing', async (req, res) => {
   try { res.json(await briefing(req.user, !!req.body?.force)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// Voz de Puma: audio mp3 (204 = sin voz neuronal, el panel usa la del navegador).
+app.post('/api/voice', async (req, res) => {
+  const audio = await synthesize(req.body?.text);
+  if (!audio) return res.status(204).end();
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('audio/mpeg').send(audio);
+});
+app.get('/api/voice/status', (_req, res) => res.json(voiceStatus()));
 
 app.get('/api/closing/question', (req, res) => res.json({ text: closingQuestion(req.user) }));
 app.post('/api/closing/answer', async (req, res) => {

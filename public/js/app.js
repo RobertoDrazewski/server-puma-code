@@ -40,10 +40,15 @@
   S.idleMood = 'calm';
   const idleMood = () => S.idleMood;
   let talk = null;
-  function startTalk() {
+  function startTalk(level) {
     stopTalk(); let amp = 1, cur = 0, last = performance.now(); const t0 = last;
     talk = { raf: 0, seen: false, bound: 0, bump() { this.seen = true; this.bound = performance.now(); amp = 1; } };
     const frame = (t) => {
+      if (level) { // voz neuronal: la mandíbula sigue el volumen real del audio
+        cur += (Math.min(1, level() * 3.2) - cur) * 0.55;
+        head.style.setProperty('--jaw', cur.toFixed(3));
+        talk.raf = requestAnimationFrame(frame); return;
+      }
       const x = (t - t0) / 1000;
       let base = Math.max(0, Math.sin(x * 2 * Math.PI * 5.4 + Math.sin(x * 2.3) * 2.2)) * (0.55 + 0.45 * Math.abs(Math.sin(x * 1.7)));
       if (talk.seen && t - talk.bound > 420) base *= 0.12; // pausa entre frases
@@ -58,9 +63,54 @@
   let voiceEs = null;
   const pickVoice = () => { const v = speechSynthesis.getVoices(); voiceEs = v.find((x) => /es-AR/i.test(x.lang)) || v.find((x) => /es-(MX|US|419)/i.test(x.lang)) || v.find((x) => /^es/i.test(x.lang)) || null; };
   if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
-  function speak(text, quiet = false) {
-    if (!quiet) $('say').textContent = text;
-    if (!S.voice || !('speechSynthesis' in window)) return Promise.resolve();
+  // Voz neuronal (OpenAI) con respaldo a la voz del navegador.
+  const V = { el: new Audio(), ctx: null, an: null, buf: null, ready: false, token: 0, finish: null };
+  V.el.preload = 'auto'; V.el.playsInline = true;
+  const SILENCIO = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+  // iOS/Safari solo deja reproducir audio si antes hubo un toque: se "desbloquea" una vez con el primer toque.
+  function unlockAudio() {
+    if (V.ready) return; V.ready = true;
+    try { V.el.src = SILENCIO; V.el.play().then(() => V.el.pause()).catch(() => {}); } catch {}
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) { V.ctx = new AC(); V.ctx.resume?.().then(() => {
+        if (V.ctx.state !== 'running' || V.an) return;
+        V.an = V.ctx.createAnalyser(); V.an.fftSize = 512; V.buf = new Uint8Array(V.an.fftSize);
+        V.ctx.createMediaElementSource(V.el).connect(V.an); V.an.connect(V.ctx.destination);
+      }).catch(() => {}); }
+    } catch {}
+  }
+  ['pointerdown', 'keydown', 'touchend'].forEach((ev) => addEventListener(ev, unlockAudio, { once: true, passive: true }));
+  const audioLevel = () => { // volumen del audio (0..1), medido sobre la onda
+    V.an.getByteTimeDomainData(V.buf); let sum = 0;
+    for (let i = 0; i < V.buf.length; i++) { const d = (V.buf[i] - 128) / 128; sum += d * d; }
+    return Math.sqrt(sum / V.buf.length);
+  };
+  function stopSpeech() {
+    V.token++; try { V.el.pause(); } catch {}
+    if (V.finish) { const f = V.finish; V.finish = null; f(); }
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+  }
+  async function speakNeural(text) {
+    const my = ++V.token;
+    let res; try { res = await fetch('/api/voice', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }); } catch { return false; }
+    if (res.status === 204) S.neuralOff = Date.now() + 10 * 60e3; // sin voz neuronal (tope diario o sin clave): no insistir 10 min
+    if (res.status !== 200 || my !== V.token) return my !== V.token;
+    if (V.an && V.ctx.state !== 'running') { try { await V.ctx.resume(); } catch {} if (V.ctx.state !== 'running') return false; } // audio en pausa por el sistema: usar la voz del navegador
+    const url = URL.createObjectURL(await res.blob());
+    if (my !== V.token) { URL.revokeObjectURL(url); return true; }
+    return new Promise((ok) => {
+      let done = false;
+      const end = (played) => { if (done) return; done = true; V.finish = null; V.el.onended = V.el.onerror = null; URL.revokeObjectURL(url); stopTalk(); setEye('idle'); setMood(idleMood()); ok(played); };
+      V.finish = () => end(true);
+      V.el.onended = () => end(true);
+      V.el.onerror = () => end(false);
+      V.el.src = url;
+      V.el.play().then(() => { setEye('speaking'); setMood(moodFor(text)); if (V.ctx?.state === 'suspended') V.ctx.resume?.(); startTalk(V.an && V.ctx?.state === 'running' ? audioLevel : null); }).catch(() => end(false));
+    });
+  }
+  function speakBrowser(text) {
+    if (!('speechSynthesis' in window)) return Promise.resolve();
     return new Promise((ok) => {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
@@ -70,6 +120,16 @@
       u.onend = u.onerror = () => { stopTalk(); setEye('idle'); setMood(idleMood()); ok(); };
       speechSynthesis.speak(u);
     });
+  }
+  async function speak(text, quiet = false) {
+    if (!quiet) $('say').textContent = text;
+    if (!S.voice) return;
+    stopSpeech();
+    if (Date.now() > (S.neuralOff || 0)) {
+      const played = await speakNeural(text);
+      if (played) return;
+    }
+    return speakBrowser(text);
   }
   function listen(onText, onEnd) {
     const R = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -407,13 +467,13 @@
     $('close-send').disabled = false;
   }
   async function logout() { try { await api('/api/auth/logout', { method: 'POST', body: {} }); } catch { /* ya salió */ } location.reload(); }
-  $('close-cancel').onclick = () => { speechSynthesis.cancel(); rec?.stop(); $('close-modal').hidden = true; setEye('idle'); };
+  $('close-cancel').onclick = () => { stopSpeech(); rec?.stop(); $('close-modal').hidden = true; setEye('idle'); };
   $('close-send').onclick = sendClose;
   $('close-mic').onclick = () => { const b = $('close-mic'); b.disabled = true; const base = $('close-text').value; rec = listen((t) => { $('close-text').value = (base ? base + ' ' : '') + t; }, (ok) => { b.disabled = false; if (!ok) alert('Tu navegador no permite dictado; escribí la respuesta.'); }); };
   $('m-off').onclick = openClose;
   $('p-logout').onclick = logout;
   $('m-brief').onclick = () => { $('menu').hidden = true; show('panel'); brief(true); };
-  $('m-voice').onclick = () => { S.voice = !S.voice; if (!S.voice) speechSynthesis.cancel(); setEye('idle'); $('m-voice').textContent = 'Voz: ' + (S.voice ? 'activada' : 'silenciada'); };
+  $('m-voice').onclick = () => { S.voice = !S.voice; if (!S.voice) stopSpeech(); setEye('idle'); $('m-voice').textContent = 'Voz: ' + (S.voice ? 'activada' : 'silenciada'); };
   $('say').onclick = () => { if (S.lastBrief) speak(S.lastBrief); };
 
   /* ---------- Novedades, buzón ---------- */
@@ -488,7 +548,7 @@
     $('chat-log').append(d); $('chat-log').scrollTop = $('chat-log').scrollHeight;
   }
   function chatSpeak(text) {
-    if (!CH.voice || !('speechSynthesis' in window)) return Promise.resolve();
+    if (!CH.voice) return Promise.resolve();
     pauseWake(); CH.speaking = true;
     return speak(text, true).finally(() => { CH.speaking = false; resumeWake(); });
   }
@@ -512,7 +572,7 @@
     }
     setTimeout(() => $('chat-in').focus({ preventScroll: true }), 50);
   }
-  const closeChat = () => { CH.open = false; $('puma-chat').hidden = true; speechSynthesis.cancel(); setEye('idle'); };
+  const closeChat = () => { CH.open = false; $('puma-chat').hidden = true; stopSpeech(); setEye('idle'); };
 
   // Escucha de fondo: despierta con «Hey Puma»
   function heard(text) {
@@ -551,7 +611,7 @@
   $('chat-x').onclick = closeChat;
   $('m-puma').onclick = () => { $('menu').hidden = true; openChat(); };
   $('chat-wake').onclick = () => setWake(!CH.wake);
-  $('chat-voice').onclick = () => { CH.voice = !CH.voice; $('chat-voice').classList.toggle('on', CH.voice); $('chat-voice').setAttribute('aria-pressed', CH.voice); if (!CH.voice) { speechSynthesis.cancel(); setEye('idle'); } };
+  $('chat-voice').onclick = () => { CH.voice = !CH.voice; $('chat-voice').classList.toggle('on', CH.voice); $('chat-voice').setAttribute('aria-pressed', CH.voice); if (!CH.voice) { stopSpeech(); setEye('idle'); } };
   $('chat-form').onsubmit = (e) => { e.preventDefault(); const t = $('chat-in').value; $('chat-in').value = ''; sendChat(t); };
   $('chat-mic').onclick = () => {
     if (!SR) { alert('Tu navegador no permite dictado por voz; escribile a Puma.'); return; }

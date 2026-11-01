@@ -42,6 +42,10 @@ export const cfg = {
   openaiKey: process.env.OPENAI_API_KEY || '',
   openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   aiDailyCalls: Number(process.env.AI_DAILY_CALLS) || 20,
+  // Voz de Puma (OpenAI TTS). TTS_DAILY_CHARS=0 la apaga y vuelve a la voz del navegador, sin costo.
+  ttsModel: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
+  ttsVoice: process.env.TTS_VOICE || 'ash',
+  ttsDailyChars: process.env.TTS_DAILY_CHARS === undefined ? 8000 : Number(process.env.TTS_DAILY_CHARS) || 0,
 
   // Muestreo
   sampleSec: Number(process.env.SAMPLE_SECONDS) || 30,
