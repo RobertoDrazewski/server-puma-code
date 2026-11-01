@@ -286,12 +286,17 @@
   $('photo-file').onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     try {
-      const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = URL.createObjectURL(f); });
+      let img;
+      try { img = await createImageBitmap(f); }
+      catch {
+        img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('No pude leer esa imagen. Si es una foto de iPhone (HEIC), convertila a JPG o PNG.')); i.src = URL.createObjectURL(f); });
+      }
       const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
-      const s = Math.min(img.width, img.height); g.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 256, 256);
+      const w = img.width, h = img.height, s = Math.min(w, h);
+      g.drawImage(img, (w - s) / 2, (h - s) / 2, s, s, 0, 0, 256, 256);
       let d = c.toDataURL('image/webp', 0.85); if (!d.startsWith('data:image/webp')) d = c.toDataURL('image/jpeg', 0.85);
       await api('/api/me/photo', { method: 'POST', body: { photo: d } }); S.me.photo = d; paintMe(); renderProfile();
-    } catch (er) { alert('No se pudo subir la foto: ' + er.message); }
+    } catch (er) { alert('No se pudo subir la foto: ' + (er?.message || 'error desconocido')); }
     e.target.value = '';
   };
   $('photo-del').onclick = async () => { await api('/api/me/photo', { method: 'POST', body: { photo: '' } }); S.me.photo = ''; paintMe(); renderProfile(); };

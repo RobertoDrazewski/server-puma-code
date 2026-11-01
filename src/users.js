@@ -1,5 +1,7 @@
 // Usuarios propios del panel (mismos correos que el panel de Puma Code), clave con scrypt, sesiones en cookie.
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { db, now, audit } from './db.js';
 import { cfg, displayName, PROFILES } from './config.js';
@@ -150,5 +152,19 @@ export function applyProfiles() {
     if (auto) db.prepare('UPDATE users SET name=? WHERE email=?').run(p.name, email);
     if (!u.call) db.prepare('UPDATE users SET call=? WHERE email=?').run(p.call, email);
     if (!u.title) db.prepare('UPDATE users SET title=? WHERE email=?').run(p.title, email);
+    seedAvatar(u, p.call.toLowerCase());
   }
+}
+
+// Foto inicial desde config/avatars/<trato>.webp. Se aplica una sola vez y solo si todavía no hay foto,
+// así cada uno puede cambiarla o quitarla y no se vuelve a pisar.
+function seedAvatar(u, slug) {
+  const key = `avatar:${u.email}`;
+  if (u.photo || db.prepare('SELECT 1 FROM known WHERE name=?').get(key)) return;
+  const file = path.resolve('config', 'avatars', `${slug}.webp`);
+  if (!fs.existsSync(file)) return;
+  try {
+    setPhoto(u.email, `data:image/webp;base64,${fs.readFileSync(file).toString('base64')}`);
+    db.prepare('INSERT INTO known VALUES (?,?)').run(key, now());
+  } catch (e) { console.warn('Foto inicial no aplicada:', e.message); }
 }
