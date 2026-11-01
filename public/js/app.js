@@ -1,0 +1,378 @@
+/* Estación Puma — interfaz */
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const NS = 'http://www.w3.org/2000/svg';
+  const S = { me: null, data: null, events: [], notes: [], voice: true, group: false, open: null, timer: null, lastBrief: '', view: 'panel', termStarted: false };
+  const TITLES = { panel: 'PANEL', log: 'REGISTRO', access: 'ACCESOS', profile: 'MI PERFIL' };
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const bytes = (n) => { if (n == null) return '–'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i]; };
+  const rate = (n) => bytes(n || 0) + '/s';
+  const pct = (n) => (n == null ? '–' : (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + '%');
+  const ago = (ts) => { const d = Math.max(0, Date.now() / 1000 - ts); return d < 90 ? 'ahora' : d < 5400 ? Math.round(d / 60) + ' min' : d < 129600 ? Math.round(d / 3600) + ' h' : Math.round(d / 86400) + ' d'; };
+  const isAdmin = () => S.me && (S.me.role === 'admin' || S.me.role === 'superadmin');
+  const isSuper = () => S.me?.role === 'superadmin';
+  const ROLE = { superadmin: 'Superadmin', admin: 'Admin', viewer: 'Solo lectura' };
+
+  async function api(url, opt = {}) {
+    const init = { ...opt };
+    if (opt.body !== undefined) { init.headers = { 'content-type': 'application/json' }; init.body = JSON.stringify(opt.body); }
+    const r = await fetch(url, init);
+    const ct = r.headers.get('content-type') || '';
+    const data = ct.includes('json') ? await r.json().catch(() => ({})) : await r.text();
+    if (!r.ok) { const e = new Error((data && data.error) || (typeof data === 'string' && data) || r.status); e.status = r.status; e.code = data && data.error; throw e; }
+    return data;
+  }
+
+  function setAvatar(el, u) {
+    if (u.photo) { el.style.backgroundImage = `url(${u.photo})`; el.textContent = ''; }
+    else { el.style.backgroundImage = ''; el.textContent = (u.name || u.email || '?').trim().slice(0, 1).toUpperCase(); }
+  }
+
+  /* ---------- Voz ---------- */
+  const eye = $('porthole');
+  const setEye = (st) => { eye.dataset.state = st; };
+  let voiceEs = null;
+  const pickVoice = () => { const v = speechSynthesis.getVoices(); voiceEs = v.find((x) => /es-AR/i.test(x.lang)) || v.find((x) => /es-(MX|US|419)/i.test(x.lang)) || v.find((x) => /^es/i.test(x.lang)) || null; };
+  if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+  function speak(text) {
+    $('say').textContent = text;
+    if (!S.voice || !('speechSynthesis' in window)) return Promise.resolve();
+    return new Promise((ok) => {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = voiceEs?.lang || 'es-AR'; if (voiceEs) u.voice = voiceEs; u.rate = 1.02;
+      u.onstart = () => setEye('speaking');
+      u.onend = u.onerror = () => { setEye('idle'); ok(); };
+      speechSynthesis.speak(u);
+    });
+  }
+  function listen(onText, onEnd) {
+    const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!R) { onEnd(false); return null; }
+    const r = new R(); r.lang = 'es-AR'; r.interimResults = true; r.continuous = false;
+    setEye('listening');
+    r.onresult = (e) => onText([...e.results].map((x) => x[0].transcript).join(' '));
+    r.onend = () => { setEye('idle'); onEnd(true); };
+    r.onerror = () => { setEye('idle'); onEnd(true); };
+    r.start();
+    return r;
+  }
+
+  /* ---------- Diales redondos ---------- */
+  const R1 = 25, R2 = 18.5;
+  const arcLen = (r) => 2 * Math.PI * r;
+  const sq = (v) => 100 * Math.sqrt(Math.max(0, Math.min(100, v)) / 100); // escala que hace visibles los valores bajos
+  function arc(r, v, col, w, glow = true) {
+    const C = arcLen(r), a = C * 0.75;
+    return `<circle cx="50" cy="50" r="${r}" fill="none" stroke="rgba(56,232,255,.12)" stroke-width="${w}" stroke-dasharray="${a} ${C}" transform="rotate(135 50 50)" stroke-linecap="round"/>
+      <circle cx="50" cy="50" r="${r}" fill="none" stroke="${col}" stroke-width="${w}" stroke-dasharray="${(a * v) / 100} ${C}" transform="rotate(135 50 50)" stroke-linecap="round" style="${glow ? `filter:drop-shadow(0 0 2.5px ${col});` : ''}transition:stroke-dasharray .8s"/>`;
+  }
+  const level = (v, base) => (v > 90 ? 'var(--bad)' : v > 75 ? 'var(--warn)' : base);
+
+  // Dial simple (indicadores del servidor)
+  function gauge(label, value, center, sub, base = 'var(--cyan)') {
+    const w = document.createElement('div');
+    const v = Math.max(0, Math.min(100, value || 0));
+    w.innerHTML = `<div class="gauge"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="30" fill="rgba(2,8,12,.92)"/>${arc(R1 - 1, v, level(v, base), 5)}
+      <text x="50" y="54" text-anchor="middle" fill="#dff7ff" font-family="Share Tech Mono, monospace" font-size="13">${esc(center)}</text></svg><img class="ring" src="/assets/gauge-ring.webp" alt=""></div>
+      <div class="g-cap">${esc(label)}</div><div class="g-sub">${esc(sub || '')}</div>`;
+    return w;
+  }
+
+  // Dial de proyecto: arco externo CPU, interno memoria
+  function projectDial(r, rank) {
+    const host = S.data.host;
+    const memPct = host ? (r.mem / host.memTotal) * 100 : 0;
+    const cpuV = sq(r.cpu), memV = sq(memPct * 3);
+    const led = r.status === 'exited' ? 'bad' : r.status === 'degraded' || r.online === false || r.healthy === false ? 'warn' : '';
+    const site = (r.sites || [])[0];
+    const el = document.createElement('div');
+    el.className = 'dial'; el.tabIndex = 0; el.setAttribute('role', 'button');
+    el.title = `${r.name}\nCPU ${pct(r.cpu)} · RAM ${bytes(r.mem)} (${pct(memPct)} del servidor)`;
+    const badge = rank && rank <= 3 && r.cpu > 0.3 ? `<span class="chip top${rank}">#${rank}</span>` : '';
+    const kind = { base: 'DB', sistema: 'SYS' }[r.kind] || '';
+    const stateTxt = r.status === 'exited' ? '<span class="bad">detenido</span>' : r.status === 'degraded' ? '<span class="warn">parcial</span>' : site ? `<span class="${site.ok ? 'ok' : 'bad'}">${site.ok ? 'en línea' : 'sin respuesta'}${site.ms != null ? ' · ' + site.ms + ' ms' : ''}</span>` : '<span class="ok">corriendo</span>';
+    const up = site?.up24 != null ? `${site.up24.toFixed(site.up24 >= 99.95 ? 0 : 1)}% 24h` : '';
+    el.innerHTML = `<div class="gauge"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="30" fill="rgba(2,8,12,.92)"/>
+      ${arc(R1, cpuV, level(cpuV, 'var(--cyan)'), 3.6)}${arc(R2, memV, 'var(--brass)', 3.6)}
+      <text x="50" y="50" text-anchor="middle" fill="#dff7ff" font-family="Share Tech Mono, monospace" font-size="11.5">${pct(r.cpu)}</text>
+      <text x="50" y="59.5" text-anchor="middle" fill="#c9964a" font-family="Share Tech Mono, monospace" font-size="6.2">${bytes(r.mem)}</text></svg><img class="ring" src="/assets/gauge-ring.webp" alt=""></div>
+      <div class="d-name"><span class="led ${led}"></span><span class="t">${esc(r.name)}</span>${badge}${kind ? `<span class="chip">${kind}</span>` : ''}</div>
+      <div class="d-line">${stateTxt}${up ? ' · ' + up : ''}</div>
+      <div class="d-line">↓ ${rate(r.rx)} · ↑ ${rate(r.tx)}${site?.certDays != null && site.certDays < 21 ? ` · <span class="warn">cert ${site.certDays} d</span>` : ''}</div>`;
+    const open = () => openDrawer(r.name);
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    return el;
+  }
+
+  function renderSides() {
+    const h = S.data?.host; if (!h) return;
+    const ram = (h.memUsed / h.memTotal) * 100, disk = h.diskTotal ? (h.diskUsed / h.diskTotal) * 100 : 0;
+    const apps = (S.data.resources || []).filter((r) => r.kind !== 'sistema');
+    const onl = apps.filter((r) => r.status === 'running' && r.online !== false).length;
+    const cts = (S.data.resources || []).flatMap((r) => r.containers);
+    const run = cts.filter((c) => c.state === 'running').length;
+    const loadPct = Math.min(100, (h.load[0] / h.cores) * 100);
+    $('side-l').replaceChildren(
+      gauge('CPU', h.cpu, Math.round(h.cpu) + '%', `${h.cores} núcleos`),
+      gauge('MEMORIA', ram, Math.round(ram) + '%', `${bytes(h.memUsed)} / ${bytes(h.memTotal)}`),
+      gauge('DISCO', disk, Math.round(disk) + '%', `${bytes(h.diskUsed)} / ${bytes(h.diskTotal)}`, 'var(--brass)'));
+    const up = h.uptime / 86400;
+    $('side-r').replaceChildren(
+      gauge('CARGA', loadPct, h.load[0].toFixed(2), `${h.load.map((x) => x.toFixed(1)).join(' · ')}`),
+      gauge('EN LÍNEA', apps.length ? (onl / apps.length) * 100 : 0, `${onl}/${apps.length}`, 'proyectos', 'var(--ok)'),
+      gauge('CONTENEDORES', cts.length ? (run / cts.length) * 100 : 0, `${run}/${cts.length}`, `encendido ${up >= 1 ? Math.floor(up) + ' d' : Math.floor(h.uptime / 3600) + ' h'} · ${S.data.docker.ok ? 'Docker ok' : 'Docker sin conexión'}`, 'var(--ok)'));
+  }
+
+  /* ---------- Gráficos ---------- */
+  function chartSvg(rows, key, fmt, color) {
+    const el = document.createElementNS(NS, 'svg'); el.setAttribute('viewBox', '0 0 600 120'); el.classList.add('chart'); el.setAttribute('preserveAspectRatio', 'none');
+    const v = rows.map((r) => r[key] || 0);
+    if (v.length < 2) { el.innerHTML = '<text x="300" y="64" text-anchor="middle" fill="#86a9b6" font-size="13">Reuniendo datos…</text>'; return el; }
+    const max = Math.max(1e-9, ...v) * 1.1, step = 600 / (v.length - 1);
+    const pts = v.map((x, i) => `${(i * step).toFixed(1)},${(112 - (x / max) * 104).toFixed(1)}`);
+    el.innerHTML = `<polyline points="0,120 ${pts.join(' ')} 600,120" fill="${color}22"/><polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/><text x="6" y="14" fill="#86a9b6" font-size="11" font-family="monospace">máx ${fmt(max / 1.1)}</text>`;
+    return el;
+  }
+
+  /* ---------- Proyectos ---------- */
+  const score = (r) => r.cpu + (S.data.host ? (r.mem / S.data.host.memTotal) * 100 : 0) * 0.6;
+  const problems = (r) => (r.status !== 'running' ? 2 : r.online === false || r.healthy === false ? 1 : 0);
+  function visible() {
+    let list = (S.data?.resources || []).slice();
+    const k = $('f-kind').value, q = $('q').value.trim().toLowerCase();
+    if (k !== 'todo') list = list.filter((r) => r.kind === k);
+    if (q) list = list.filter((r) => (r.name + ' ' + (r.hosts || []).join(' ') + ' ' + r.family).toLowerCase().includes(q));
+    const cmp = { consumo: (a, b) => score(b) - score(a), cpu: (a, b) => b.cpu - a.cpu, ram: (a, b) => b.mem - a.mem, red: (a, b) => b.rx + b.tx - (a.rx + a.tx), estado: (a, b) => problems(b) - problems(a) || score(b) - score(a), nombre: (a, b) => a.name.localeCompare(b.name) }[$('f-sort').value];
+    return list.sort(cmp);
+  }
+  function renderCards() {
+    if (!S.data) return;
+    const list = visible();
+    const apps = (S.data.resources || []).filter((r) => r.kind === 'app').sort((a, b) => b.cpu - a.cpu);
+    const rankOf = (r) => (r.kind === 'app' ? apps.indexOf(r) + 1 : 0);
+    const box = $('cards'); box.replaceChildren();
+    if (!list.length) { box.innerHTML = S.data.docker.ok ? '<p class="empty">Sin proyectos para mostrar.</p>' : `<p class="empty">Sin conexión con Docker: ${esc(S.data.docker.error)}</p>`; return; }
+    if (!S.group) { list.forEach((r) => box.append(projectDial(r, rankOf(r)))); return; }
+    const fam = new Map();
+    list.forEach((r) => { const k = r.family || r.name; (fam.get(k) || fam.set(k, []).get(k)).push(r); });
+    for (const [k, items] of fam) { const h = document.createElement('h2'); h.textContent = k; box.append(h); items.forEach((r) => box.append(projectDial(r, rankOf(r)))); }
+  }
+
+  /* ---------- Detalle ---------- */
+  async function openDrawer(name) {
+    S.open = name; $('drawer').hidden = false;
+    const r = S.data.resources.find((x) => x.name === name); if (!r) return;
+    const admin = isAdmin();
+    $('drawer-body').innerHTML = `<div class="d-title"><span class="led ${r.status === 'running' ? '' : 'bad'}"></span><h3>${esc(r.name)}</h3></div>
+      <div class="c-sub">${esc((r.hosts || []).join(' · '))}</div>
+      <div class="c-meta" style="margin-top:6px"><span>CPU ${pct(r.cpu)}</span><span>RAM ${bytes(r.mem)}</span><span>↓ ${rate(r.rx)}</span><span>↑ ${rate(r.tx)}</span></div>
+      <div class="d-grid">
+        <div class="d-sec"><h4>Historial</h4><div class="seg" id="hrs"><button data-h="1">1 h</button><button data-h="24" class="on">24 h</button><button data-h="168">7 d</button></div><div id="ch-cpu"></div><div id="ch-mem" style="margin-top:8px"></div></div>
+        <div class="d-sec"><h4>Contenedores</h4><table class="ctable" id="ctab"></table></div>
+        <div class="d-sec" id="sites"></div>
+        <div class="d-sec"><h4>Registro</h4><pre class="logs" id="logs">Elegí un contenedor para ver sus últimas líneas.</pre></div></div>`;
+    const ct = $('ctab');
+    r.containers.forEach((c) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${esc(c.name)}</td><td>${esc(c.status)}</td><td><div class="row-btns"><button class="btn small" data-a="logs">Logs</button>${admin ? '<button class="btn small warn" data-a="restart">Reiniciar</button>' : ''}</div></td>`;
+      tr.querySelector('[data-a=logs]').onclick = async () => { $('logs').textContent = 'Cargando…'; try { $('logs').textContent = (await api(`/api/containers/${c.id}/logs?tail=120`)) || '(sin salida)'; } catch (e) { $('logs').textContent = e.message; } };
+      const rb = tr.querySelector('[data-a=restart]');
+      if (rb) rb.onclick = async () => { if (!confirm(`¿Reiniciar ${c.name}?`)) return; rb.disabled = true; try { await api(`/api/containers/${c.id}/restart`, { method: 'POST', body: {} }); rb.textContent = 'Listo'; } catch (e) { alert(e.message); rb.disabled = false; } };
+      ct.append(tr);
+    });
+    if (r.sites?.length) $('sites').innerHTML = '<h4>Sitios</h4>' + r.sites.map((s) => `<div class="c-meta"><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.host)}</a><span class="${s.ok ? 'ok' : 'bad'}">${s.ok ? 'en línea' : 'sin respuesta'}</span><span>${s.ms ?? '–'} ms</span><span>prom. ${s.avgMs ?? '–'} ms</span><span>${s.up24 != null ? s.up24.toFixed(1) + '% 24h' : ''}</span></div>`).join('');
+    const load = async (h) => { const rows = await api(`/api/history/${encodeURIComponent(name)}?hours=${h}`).catch(() => []); $('ch-cpu').replaceChildren(chartSvg(rows, 'cpu', pct, '#38e8ff')); $('ch-mem').replaceChildren(chartSvg(rows, 'mem', bytes, '#c9964a')); };
+    $('hrs').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; [...$('hrs').children].forEach((x) => x.classList.toggle('on', x === b)); load(b.dataset.h); };
+    load(24);
+  }
+  const closeDrawer = () => { $('drawer').hidden = true; S.open = null; };
+  $('drawer-x').onclick = closeDrawer;
+  $('drawer').addEventListener('click', (e) => { if (e.target.id === 'drawer') closeDrawer(); });
+
+  /* ---------- Registro y pendientes ---------- */
+  function renderEvents() {
+    $('events').innerHTML = S.events.length ? S.events.map((e) => `<li class="${esc(e.level)}"><time>${ago(e.ts)}</time><span>${esc(e.message)}</span></li>`).join('') : '<li class="empty">Sin novedades.</li>';
+    const n = $('notes'); n.innerHTML = S.notes.length ? '' : '<li class="empty">Nada pendiente.</li>';
+    S.notes.forEach((x) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<div>${esc(x.text)}<br><small>${x.kind === 'manana' ? 'para ' + esc(x.due) : 'pendiente'} · ${esc(x.user.split('@')[0])}</small></div>`;
+      if (isAdmin()) { const b = document.createElement('button'); b.className = 'btn small'; b.textContent = 'Hecho'; b.onclick = async () => { await api(`/api/notes/${x.id}/done`, { method: 'POST', body: {} }); refresh(); }; li.append(b); }
+      n.append(li);
+    });
+  }
+
+  /* ---------- Accesos (superadmin) ---------- */
+  async function renderAccess() {
+    if (!isSuper()) return;
+    const list = await api('/api/users').catch(() => []);
+    const t = $('users');
+    t.innerHTML = '<tr><th>Usuario</th><th>Rol</th><th>Último ingreso</th><th>Estado</th><th></th></tr>';
+    list.forEach((u) => {
+      const tr = document.createElement('tr'); const me = u.email === S.me.email;
+      tr.innerHTML = `<td><div class="u-who"><span class="avatar"></span><div><b>${esc(u.name)}</b><br><small class="mono">${esc(u.email)}</small></div></div></td>
+        <td><select data-a="role" ${me ? 'disabled' : ''}>${['superadmin', 'admin', 'viewer'].map((r) => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE[r]}</option>`).join('')}</select></td>
+        <td class="mono">${u.lastLogin ? ago(u.lastLogin) : 'nunca'}</td>
+        <td>${u.disabled ? '<span class="d-line"><span class="bad">desactivado</span></span>' : u.mustChange ? '<span class="d-line"><span class="warn">debe cambiar clave</span></span>' : '<span class="d-line"><span class="ok">activo</span></span>'}</td>
+        <td><div class="acts"><button class="btn small" data-a="reset">Resetear clave</button>${me ? '' : `<button class="btn small" data-a="toggle">${u.disabled ? 'Activar' : 'Desactivar'}</button><button class="btn small warn" data-a="del">Borrar</button>`}</div></td>`;
+      setAvatar(tr.querySelector('.avatar'), u);
+      const act = async (body, ok) => { try { await api(`/api/users/${encodeURIComponent(u.email)}`, { method: 'PATCH', body }); renderAccess(); if (ok) alert(ok); } catch (e) { alert(e.message); renderAccess(); } };
+      tr.querySelector('[data-a=role]').onchange = (e) => act({ role: e.target.value });
+      tr.querySelector('[data-a=reset]').onclick = () => { const p = prompt(`Nueva clave temporal para ${u.email} (mín. 10 caracteres). Tendrá que cambiarla al entrar.`); if (p) act({ password: p }, 'Clave reseteada.'); };
+      const tg = tr.querySelector('[data-a=toggle]'); if (tg) tg.onclick = () => act({ disabled: !u.disabled });
+      const dl = tr.querySelector('[data-a=del]'); if (dl) dl.onclick = async () => { if (!confirm(`¿Borrar el acceso de ${u.email}?`)) return; try { await api(`/api/users/${encodeURIComponent(u.email)}`, { method: 'DELETE' }); renderAccess(); } catch (e) { alert(e.message); } };
+      t.append(tr);
+    });
+    const au = await api('/api/audit').catch(() => []);
+    $('audit').innerHTML = au.slice(0, 40).map((a) => `<li><time>${ago(a.ts)}</time><span>${esc(a.user.split('@')[0])} · ${esc(a.action)} ${esc(a.detail)}</span></li>`).join('') || '<li class="empty">Sin registros.</li>';
+  }
+  $('new-user').onsubmit = async (e) => {
+    e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); const m = $('nu-msg'); m.className = '';
+    try { await api('/api/users', { method: 'POST', body: f }); m.textContent = 'Acceso creado. La persona deberá cambiar la clave al entrar.'; m.className = 'ok'; e.target.reset(); renderAccess(); }
+    catch (er) { m.textContent = er.message; }
+  };
+
+  /* ---------- Perfil ---------- */
+  function renderProfile() {
+    setAvatar($('avatar-profile'), S.me); $('p-name').value = S.me.name;
+  }
+  $('name-form').onsubmit = async (e) => { e.preventDefault(); try { await api('/api/me/name', { method: 'POST', body: { name: $('p-name').value } }); S.me.name = $('p-name').value; paintMe(); } catch (er) { alert(er.message); } };
+  $('pw-form').onsubmit = async (e) => {
+    e.preventDefault(); const m = $('pw-msg'); m.className = '';
+    try { await api('/api/me/password', { method: 'POST', body: { current: $('pw-cur').value, next: $('pw-new').value } }); m.textContent = 'Clave actualizada.'; m.className = 'ok'; e.target.reset(); }
+    catch (er) { m.textContent = er.message; }
+  };
+  $('photo-file').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = URL.createObjectURL(f); });
+      const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+      const s = Math.min(img.width, img.height); g.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 256, 256);
+      let d = c.toDataURL('image/webp', 0.85); if (!d.startsWith('data:image/webp')) d = c.toDataURL('image/jpeg', 0.85);
+      await api('/api/me/photo', { method: 'POST', body: { photo: d } }); S.me.photo = d; paintMe(); renderProfile();
+    } catch (er) { alert('No se pudo subir la foto: ' + er.message); }
+    e.target.value = '';
+  };
+  $('photo-del').onclick = async () => { await api('/api/me/photo', { method: 'POST', body: { photo: '' } }); S.me.photo = ''; paintMe(); renderProfile(); };
+
+  /* ---------- Navegación ---------- */
+  function paintMe() {
+    setAvatar($('avatar-top'), S.me); setAvatar($('avatar-menu'), S.me);
+    $('m-name').textContent = S.me.name; $('m-role').textContent = ROLE[S.me.role];
+    document.querySelectorAll('[data-super]').forEach((b) => { b.hidden = !isSuper(); });
+  }
+  function show(view) {
+    if (view === 'access' && !isSuper()) view = 'panel';
+    S.view = view;
+    document.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== 'v-' + view; });
+    document.querySelectorAll('#menu [data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
+    $('view-title').textContent = TITLES[view];
+    $('menu').hidden = true; window.scrollTo(0, 0);
+    if (view === 'access') renderAccess();
+    if (view === 'profile') renderProfile();
+    if (view === 'panel') setTimeout(() => { try { fitAddon?.fit(); } catch { /* aún no hay terminal */ } }, 50);
+  }
+  $('burger').onclick = () => { $('menu').hidden = !$('menu').hidden; };
+  $('menu').addEventListener('click', (e) => { if (e.target.id === 'menu') $('menu').hidden = true; });
+  document.querySelectorAll('#menu [data-view]').forEach((b) => { b.onclick = () => show(b.dataset.view); });
+  $('avatar-top').onclick = () => show('profile');
+
+  /* ---------- Datos ---------- */
+  async function refresh() {
+    try {
+      const [st, ev, nt] = await Promise.all([api('/api/state'), api('/api/events?limit=40'), api('/api/notes')]);
+      S.data = st; S.events = ev; S.notes = nt;
+      renderSides(); renderCards(); renderEvents();
+    } catch (e) { if (e.status === 401) location.reload(); else $('say').textContent = 'Sin conexión con la estación: ' + e.message; }
+  }
+  async function brief(force) {
+    try { const b = await api('/api/briefing', { method: 'POST', body: { force: !!force } }); S.lastBrief = b.text; await speak(b.text); }
+    catch (e) { $('say').textContent = 'No pude armar el informe: ' + e.message; }
+  }
+
+  /* ---------- Terminal (debajo de la cabeza) ---------- */
+  let ws = null, term = null, fitAddon = null;
+  function termMsg(html) { const o = $('term-off'); o.innerHTML = html; o.hidden = !html; }
+  async function connectTerm() {
+    if (!S.me.terminal) { termMsg(S.me.role === 'viewer' ? 'Tu rol es de solo lectura: la terminal es para administradores.' : 'La terminal está desactivada (TERMINAL_ENABLED=0).'); $('term-btn').hidden = true; return; }
+    if (ws) { ws.close(); return; }
+    termMsg(''); $('term-btn').textContent = 'Desconectar';
+    if (!term) {
+      term = new Terminal({ cursorBlink: true, fontFamily: '"Share Tech Mono", monospace', fontSize: 13, theme: { background: '#010609', foreground: '#cdeff8', cursor: '#38e8ff' } });
+      fitAddon = new FitAddon.FitAddon(); term.loadAddon(fitAddon); term.open($('term'));
+      new ResizeObserver(() => { try { fitAddon.fit(); } catch { /* oculto */ } }).observe($('term'));
+      term.onData((d) => ws?.readyState === 1 && ws.send(JSON.stringify({ t: 'i', d })));
+    }
+    term.reset(); try { fitAddon.fit(); } catch { /* nada */ }
+    const t0 = Date.now(); let got = false;
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/terminal');
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'init', cols: term.cols, rows: term.rows }));
+    ws.onmessage = (e) => { try { const m = JSON.parse(e.data); if (m.t === 'o') { got = true; term.write(m.d); } } catch { /* ignora */ } };
+    ws.onclose = async () => {
+      ws = null; $('term-btn').textContent = 'Conectar';
+      term?.write('\r\n\x1b[33m[sesión cerrada]\x1b[0m\r\n');
+      if (Date.now() - t0 < 6000 && S.me.terminalMode === 'ssh') await setupHint();
+    };
+    term.focus();
+  }
+  async function setupHint() {
+    let key = '';
+    if (isSuper()) key = await api('/api/terminal/pubkey').catch(() => '');
+    termMsg(`<div>No pude abrir la terminal en el servidor. Falta crear el usuario sin privilegios <b>estacion</b>. En el VPS ejecutá:${key ? `<code>sudo bash crear-usuario-estacion.sh "${esc(key)}"</code>` : '<br>(pedile la clave pública al superadmin)'}<br><small>Más detalle en el README, sección Terminal.</small></div>`);
+  }
+  $('term-btn').onclick = connectTerm;
+
+  /* ---------- Cierre de jornada ---------- */
+  let rec = null;
+  async function openClose() { $('menu').hidden = true; const q = await api('/api/closing/question'); $('close-modal').hidden = false; $('close-text').value = ''; $('close-q').textContent = q.text; speak(q.text); }
+  async function sendClose() {
+    $('close-send').disabled = true;
+    try { const out = await api('/api/closing/answer', { method: 'POST', body: { text: $('close-text').value } }); $('close-modal').hidden = true; await speak(out.reply); await logout(); }
+    catch (e) { alert(e.message); }
+    $('close-send').disabled = false;
+  }
+  async function logout() { try { await api('/api/auth/logout', { method: 'POST', body: {} }); } catch { /* ya salió */ } location.reload(); }
+  $('close-cancel').onclick = () => { speechSynthesis.cancel(); rec?.stop(); $('close-modal').hidden = true; setEye('idle'); };
+  $('close-send').onclick = sendClose;
+  $('close-mic').onclick = () => { const b = $('close-mic'); b.disabled = true; const base = $('close-text').value; rec = listen((t) => { $('close-text').value = (base ? base + ' ' : '') + t; }, (ok) => { b.disabled = false; if (!ok) alert('Tu navegador no permite dictado; escribí la respuesta.'); }); };
+  $('m-off').onclick = openClose;
+  $('p-logout').onclick = logout;
+  $('m-brief').onclick = () => { $('menu').hidden = true; show('panel'); brief(true); };
+  $('m-voice').onclick = () => { S.voice = !S.voice; if (!S.voice) speechSynthesis.cancel(); setEye('idle'); $('m-voice').textContent = 'Voz: ' + (S.voice ? 'activada' : 'silenciada'); };
+  $('say').onclick = () => { if (S.lastBrief) speak(S.lastBrief); };
+
+  /* ---------- Acceso ---------- */
+  function enter(speakBrief) {
+    $('gate').hidden = true; $('app').hidden = false;
+    paintMe(); show('panel');
+    refresh().then(() => { S.timer = setInterval(refresh, Math.max(5, S.data?.sampleSec || 30) * 1000); });
+    if (S.me.terminal && !S.termStarted) { S.termStarted = true; connectTerm(); } else if (!S.me.terminal) connectTerm();
+    if (speakBrief) brief(false); else $('say').textContent = 'Tocá el mensaje o el menú → Informe hablado para escuchar el informe.';
+  }
+  async function afterLogin(speakBrief) {
+    S.me = await api('/api/me');
+    if (S.me.mustChange) { $('force-modal').hidden = false; $('gate').hidden = true; return; }
+    enter(speakBrief);
+  }
+  $('gate-open').onclick = () => { $('gate-open').hidden = true; $('login').hidden = false; $('l-email').focus(); };
+  $('login').onsubmit = async (e) => {
+    e.preventDefault(); $('l-err').textContent = '';
+    try { await api('/api/auth/login', { method: 'POST', body: { email: $('l-email').value, password: $('l-pass').value } }); $('l-pass').value = ''; await afterLogin(true); }
+    catch (er) { $('l-err').textContent = er.message; }
+  };
+  $('force-form').onsubmit = async (e) => {
+    e.preventDefault(); $('f-err').textContent = '';
+    try { await api('/api/me/password', { method: 'POST', body: { current: $('f-cur').value, next: $('f-new').value } }); $('force-modal').hidden = true; await afterLogin(true); }
+    catch (er) { $('f-err').textContent = er.message; }
+  };
+
+  ['q', 'f-kind', 'f-sort'].forEach((id) => $(id).addEventListener('input', renderCards));
+  $('f-group').onchange = (e) => { S.group = e.target.checked; renderCards(); };
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (!$('drawer').hidden) closeDrawer(); else $('menu').hidden = true; } });
+  setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('es-AR', { hour12: false, timeZone: 'America/Argentina/Mendoza' }); }, 1000);
+
+  // ¿Ya hay sesión abierta?
+  api('/api/me').then(async (me) => { S.me = me; if (me.mustChange) { $('force-modal').hidden = false; $('gate').hidden = true; } else enter(false); }).catch(() => { /* muestra el acceso */ });
+})();

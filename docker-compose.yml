@@ -1,0 +1,46 @@
+services:
+  station:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - socket-proxy
+    environment:
+      DOCKER_HOST_URL: http://socket-proxy:2375
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS}
+      VIEWER_EMAILS: ${VIEWER_EMAILS:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      AI_DAILY_CALLS: ${AI_DAILY_CALLS:-20}
+      EXTRA_URLS: ${EXTRA_URLS:-}
+      TERMINAL_ENABLED: ${TERMINAL_ENABLED:-1}
+      TERMINAL_HOST: host.docker.internal
+      TERMINAL_USER: ${TERMINAL_USER:-estacion}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - station-data:/data
+    networks: [internal, web]
+
+  # Solo lectura de Docker (más reinicio). Nunca se expone el socket completo.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      INFO: 1
+      ALLOW_RESTARTS: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [internal]
+
+volumes:
+  station-data:
+
+networks:
+  internal:
+    internal: true
+  web:

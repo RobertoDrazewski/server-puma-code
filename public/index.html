@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Estación Puma</title>
+<link rel="icon" href="/assets/logo-trans.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap">
+<link rel="stylesheet" href="/vendor/xterm/css/xterm.css">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div id="space"></div>
+
+<!-- Acceso: solo el logo y el botón -->
+<section id="gate">
+  <img class="gate-logo" src="/assets/logo-puma.webp" alt="Puma Code">
+  <div class="gate-box">
+    <p class="gate-tag">Dashboard · Servidor interno</p>
+    <button id="gate-open" class="btn big">Acceso</button>
+    <form id="login" class="login" hidden autocomplete="on">
+      <input id="l-email" type="email" placeholder="Correo" autocomplete="username" required>
+      <input id="l-pass" type="password" placeholder="Clave" autocomplete="current-password" required>
+      <button class="btn big" type="submit">Entrar</button>
+      <small id="l-err" role="alert"></small>
+    </form>
+  </div>
+</section>
+
+<div id="app" hidden>
+  <header class="top panel">
+    <button id="burger" class="burger" aria-label="Menú"><span></span><span></span><span></span></button>
+    <img class="brand" src="/assets/wordmark.webp" alt="PumaCode">
+    <div class="top-title"><b id="view-title">PANEL</b><span>Estación Puma · server.puma-code.com</span></div>
+    <div class="top-right">
+      <span id="clock" class="mono"></span>
+      <button id="avatar-top" class="avatar" aria-label="Mi perfil"></button>
+    </div>
+  </header>
+
+  <!-- Menú hamburguesa -->
+  <nav id="menu" hidden>
+    <div class="menu-box panel">
+      <div class="menu-user"><span id="avatar-menu" class="avatar big-av"></span><div><b id="m-name"></b><small id="m-role"></small></div></div>
+      <button data-view="panel">Panel</button>
+      <button data-view="log">Registro y pendientes</button>
+      <button data-view="access" data-super>Accesos</button>
+      <button data-view="profile">Mi perfil</button>
+      <hr>
+      <button id="m-brief">Informe hablado</button>
+      <button id="m-voice">Voz: activada</button>
+      <button id="m-off" class="warn">Cierre de jornada</button>
+    </div>
+  </nav>
+
+  <main>
+    <!-- PANEL -->
+    <section id="v-panel" class="view">
+      <div class="deck">
+        <div class="side" id="side-l"></div>
+
+        <div class="core">
+          <div class="porthole" id="porthole" data-state="idle">
+            <div class="eye"><div class="eye-bg"></div><img src="/assets/puma-mech.webp" alt=""></div>
+            <img class="frame" src="/assets/porthole.webp" alt="">
+          </div>
+          <p id="say" class="say" aria-live="polite">Esperando lecturas…</p>
+
+          <div class="term-wrap panel" id="term-wrap">
+            <div class="term-bar"><span>Terminal</span><span class="grow"></span><button id="term-btn" class="btn small">Conectar</button></div>
+            <div id="term"></div>
+            <div id="term-off" class="term-off" hidden></div>
+          </div>
+        </div>
+
+        <div class="side" id="side-r"></div>
+      </div>
+
+      <div class="board-head">
+        <h2>Proyectos a bordo</h2>
+        <div class="controls">
+          <input id="q" type="search" placeholder="Buscar" aria-label="Buscar proyecto">
+          <select id="f-kind" aria-label="Filtrar"><option value="todo">Todo</option><option value="app">Aplicaciones</option><option value="base">Bases de datos</option><option value="sistema">Sistema</option></select>
+          <select id="f-sort" aria-label="Ordenar"><option value="consumo">Mayor consumo</option><option value="cpu">CPU</option><option value="ram">Memoria</option><option value="red">Red</option><option value="estado">Problemas primero</option><option value="nombre">Nombre</option></select>
+          <label class="check"><input id="f-group" type="checkbox"> Agrupar</label>
+        </div>
+      </div>
+      <div id="cards" class="dials"></div>
+    </section>
+
+    <!-- REGISTRO -->
+    <section id="v-log" class="view" hidden>
+      <div class="logs-row">
+        <div class="panel pad"><h2>Registro de a bordo</h2><ul id="events" class="events"></ul></div>
+        <div class="panel pad"><h2>Pendientes</h2><ul id="notes" class="notes"></ul></div>
+      </div>
+    </section>
+
+    <!-- ACCESOS -->
+    <section id="v-access" class="view" hidden>
+      <div class="panel pad">
+        <h2>Accesos al panel</h2>
+        <p class="hint">Los accesos de Roberto y Mauro. El superadmin crea usuarios, cambia roles y resetea claves (la persona debe cambiarla al entrar).</p>
+        <div class="table-wrap"><table class="utable" id="users"></table></div>
+        <h3 class="sub">Nuevo acceso</h3>
+        <form id="new-user" class="grid-form">
+          <input name="email" type="email" placeholder="Correo" required>
+          <input name="name" type="text" placeholder="Nombre">
+          <select name="role"><option value="admin">Admin</option><option value="viewer">Solo lectura</option><option value="superadmin">Superadmin</option></select>
+          <input name="password" type="text" placeholder="Clave inicial (mín. 10)" minlength="10" required autocomplete="off">
+          <button class="btn" type="submit">Crear acceso</button>
+        </form>
+        <small id="nu-msg"></small>
+      </div>
+      <div class="panel pad" style="margin-top:16px"><h2>Auditoría reciente</h2><ul id="audit" class="events"></ul></div>
+    </section>
+
+    <!-- PERFIL -->
+    <section id="v-profile" class="view" hidden>
+      <div class="panel pad profile">
+        <h2>Mi perfil</h2>
+        <div class="p-photo"><span id="avatar-profile" class="avatar huge"></span>
+          <div class="row"><label class="btn small">Subir foto<input id="photo-file" type="file" accept="image/*" hidden></label><button id="photo-del" class="btn small">Quitar</button></div></div>
+        <form id="name-form" class="grid-form"><input id="p-name" placeholder="Nombre" required><button class="btn" type="submit">Guardar nombre</button></form>
+        <h3 class="sub">Cambiar clave</h3>
+        <form id="pw-form" class="grid-form">
+          <input id="pw-cur" type="password" placeholder="Clave actual" autocomplete="current-password" required>
+          <input id="pw-new" type="password" placeholder="Nueva clave (mín. 10)" minlength="10" autocomplete="new-password" required>
+          <button class="btn" type="submit">Cambiar clave</button>
+        </form>
+        <small id="pw-msg"></small>
+        <hr>
+        <button id="p-logout" class="btn warn">Cerrar sesión</button>
+      </div>
+    </section>
+    <footer class="foot mono">Puma Code · Cybersecurity &amp; Software Factory · Est. Mendoza</footer>
+  </main>
+</div>
+
+<!-- Cambio de clave obligatorio -->
+<div id="force-modal" class="modal" hidden>
+  <form id="force-form" class="close-box panel">
+    <h2>Elegí tu clave</h2>
+    <p class="hint">Es tu primer ingreso (o te resetearon la clave). Definí una nueva para continuar.</p>
+    <input id="f-cur" type="password" placeholder="Clave actual / temporal" autocomplete="current-password" required>
+    <input id="f-new" type="password" placeholder="Nueva clave (mín. 10)" minlength="10" autocomplete="new-password" required>
+    <small id="f-err"></small>
+    <button class="btn big" type="submit">Guardar y entrar</button>
+  </form>
+</div>
+
+<aside id="drawer" hidden>
+  <div class="drawer-box panel"><button class="x" id="drawer-x" aria-label="Cerrar">×</button><div id="drawer-body"></div></div>
+</aside>
+
+<div id="close-modal" class="modal" hidden>
+  <div class="close-box panel">
+    <h2>Cierre de jornada</h2>
+    <p class="hint">Esto no apaga ningún servidor: todo sigue en línea. Solo cierra tu sesión del panel.</p>
+    <p id="close-q" class="say"></p>
+    <textarea id="close-text" rows="4" placeholder="Escribí o dictá tu respuesta"></textarea>
+    <div class="row"><button id="close-mic" class="btn">Dictar</button><span class="grow"></span><button id="close-cancel" class="btn">Volver</button><button id="close-send" class="btn warn">Enviar y salir</button></div>
+  </div>
+</div>
+
+<script src="/vendor/xterm/lib/xterm.js"></script>
+<script src="/vendor/xterm-fit/lib/addon-fit.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "server-puma-code",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Estación Puma: panel de monitoreo y mando del servidor (server.puma-code.com)",
+  "type": "module",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "local": "NODE_ENV=development node --disable-warning=ExperimentalWarning src/server.js",
+    "demo": "node --disable-warning=ExperimentalWarning dev/run-dev.mjs"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "express": "^4.21.2",
+    "jose": "^5.9.6",
+    "ws": "^8.18.0"
+  }
+}
