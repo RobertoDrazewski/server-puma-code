@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap">
 <link rel="stylesheet" href="/vendor/xterm/css/xterm.css">
-<link rel="stylesheet" href="/css/app.css?v=20261101d">
+<link rel="stylesheet" href="/css/app.css?v=20261101e">
 </head>
 <body>
 <div id="space"></div>
@@ -68,7 +68,15 @@
 
         <div class="core">
           <div class="porthole" id="porthole" data-state="idle">
-            <div class="eye"><div class="eye-bg"></div><img src="/assets/puma-mech.webp" alt=""></div>
+            <div class="eye"><div class="eye-bg"></div>
+              <div class="head" id="head">
+                <div class="mouth"></div>
+                <img class="h-base" src="/assets/puma-mech.webp" alt="">
+                <div class="jaw"><img src="/assets/puma-mech.webp" alt=""></div>
+                <i class="gem gl"></i><i class="gem gr"></i>
+                <i class="lid ll"></i><i class="lid lr"></i>
+              </div>
+            </div>
             <img class="frame" src="/assets/porthole.webp" alt="">
           </div>
           <p id="say" class="say" aria-live="polite">Esperando lecturas…</p>
@@ -220,6 +228,6 @@
 
 <script src="/vendor/xterm/lib/xterm.js"></script>
 <script src="/vendor/xterm-fit/lib/addon-fit.js"></script>
-<script src="/js/app.js?v=20261101d"></script>
+<script src="/js/app.js?v=20261101e"></script>
 </body>
 </html>

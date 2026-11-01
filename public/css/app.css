@@ -160,7 +160,35 @@ main { min-width: 0; }
 .porthole .frame { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; filter: drop-shadow(0 14px 24px rgba(0,0,0,.65)) drop-shadow(0 0 22px rgba(56,232,255,.18)); }
 .eye { position: absolute; left: 31.6%; top: 31.6%; width: 36.6%; height: 36.6%; border-radius: 50%; overflow: hidden; }
 .eye-bg { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 78%, rgba(56,232,255,.55), rgba(20,90,140,.35) 28%, transparent 60%), linear-gradient(rgba(2,2,3,.35), rgba(2,2,3,.1)), url(/assets/hero-earth.webp) 50% 78% / 330% auto no-repeat, #010608; }
-.eye img { position: absolute; left: 50%; top: 46%; width: 48%; transform: translate(-50%, -50%); filter: drop-shadow(0 0 10px rgba(56,232,255,.45)); }
+/* Cabeza de Puma: mandíbula que habla y expresiones (ojos y párpados) */
+.head { --jaw: 0; position: absolute; left: 50%; top: 46%; width: 48%; aspect-ratio: 922 / 1008; transform: translate(-50%, -50%); filter: drop-shadow(0 0 10px rgba(56,232,255,.45)); }
+.head img { position: absolute; display: block; }
+.head .h-base { inset: 0; width: 100%; height: 100%; /* la barbilla se recorta: la dibuja .jaw */
+  clip-path: polygon(evenodd, 0 0, 100% 0, 100% 100%, 0 100%, 0 0, 41.8% 80.6%, 62.4% 80.6%, 62.4% 89.9%, 41.8% 89.9%, 41.8% 80.6%); }
+.mouth { position: absolute; left: 41.8%; top: 79.6%; width: 20.6%; height: 10.6%; border-radius: 0 0 40% 40%;
+  background: radial-gradient(ellipse at 50% 0%, rgba(56,232,255,.75), #04141b 60%, #010608); box-shadow: inset 0 3px 5px rgba(0,0,0,.9); }
+.jaw { position: absolute; left: 41.8%; top: 80.6%; width: 20.6%; height: 9.3%; overflow: hidden;
+  transform: translateY(calc(var(--jaw) * 62%)) rotate(calc(var(--jaw) * .8deg)); transform-origin: 50% 0; will-change: transform; }
+.jaw img { width: 485.4%; height: 1075.3%; left: -202.9%; top: -866.7%; max-width: none; }
+.gem { position: absolute; width: 12.5%; aspect-ratio: 1; border-radius: 50%; top: 31.7%; mix-blend-mode: color; background: var(--eye-col, #ffb347); opacity: var(--eye-op, 0); transition: opacity .3s; pointer-events: none; }
+.gem.gl { left: 24.2%; } .gem.gr { left: 63.9%; }
+.lid { position: absolute; top: 33.4%; height: 9.6%; width: 16.4%; background: linear-gradient(180deg, var(--lid1), var(--lid2)); clip-path: polygon(0 0, 100% 0, 100% 0, 0 0); transition: clip-path .22s ease; pointer-events: none; }
+.lid.ll { left: 21.2%; --lid1: #4a3425; --lid2: #7b5a42; } .lid.lr { left: 62%; --lid1: #5c5f56; --lid2: #8b8e84; }
+.porthole[data-mood="serious"] { --eye-col: #ffb347; --eye-op: .85; }
+.porthole[data-mood="serious"] .lid { clip-path: polygon(0 0, 100% 0, 100% 34%, 0 34%); }
+.porthole[data-mood="alert"] { --eye-col: #ff4a3a; --eye-op: .95; }
+.porthole[data-mood="alert"] .lid.ll { clip-path: polygon(0 0, 100% 0, 100% 62%, 0 14%); }
+.porthole[data-mood="alert"] .lid.lr { clip-path: polygon(0 0, 100% 0, 100% 14%, 0 62%); }
+.porthole[data-mood="happy"] { --eye-col: #6dffc0; --eye-op: .55; }
+.porthole[data-mood="happy"] .lid { clip-path: polygon(0 100%, 100% 100%, 100% 80%, 88% 64%, 70% 52%, 50% 47%, 30% 52%, 12% 64%, 0 80%); }
+.porthole[data-mood="happy"] .lid.ll { --lid1: #8a6a52; --lid2: #8b8272; } .porthole[data-mood="happy"] .lid.lr { --lid1: #8d9a96; --lid2: #91a5a0; }
+.porthole[data-mood="thinking"] { --eye-col: #ffb347; --eye-op: .8; }
+.porthole[data-mood="thinking"] .lid.ll { clip-path: polygon(0 0, 100% 0, 100% 42%, 0 42%); }
+.porthole[data-mood="thinking"] .lid.lr { clip-path: polygon(0 0, 100% 0, 100% 12%, 0 12%); }
+.porthole[data-state="listening"] { --eye-col: #ff9a2e; --eye-op: .9; }
+.porthole[data-state="speaking"] .head { animation: headbob 1.6s ease-in-out infinite; }
+@keyframes headbob { 0%, 100% { transform: translate(-50%, -50%) rotate(0deg); } 30% { transform: translate(-50%, -50.6%) rotate(-.7deg); } 70% { transform: translate(-50%, -49.6%) rotate(.6deg); } }
+.porthole .head.blink .lid { clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); transition-duration: .06s; }
 .eye::after { content: ""; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 28px 9px var(--glow); pointer-events: none; }
 .porthole[data-state="listening"] { --glow: rgba(255,154,46,.8); }
 .porthole[data-state="listening"] .eye::after { animation: pulse 1.1s ease-in-out infinite; }

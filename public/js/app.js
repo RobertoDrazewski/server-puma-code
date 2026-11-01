@@ -32,6 +32,29 @@
   /* ---------- Voz ---------- */
   const eye = $('porthole');
   const setEye = (st) => { eye.dataset.state = st; };
+  /* Cara de Puma: expresión, parpadeo y mandíbula que acompaña a la voz */
+  const head = $('head');
+  const setMood = (m) => { eye.dataset.mood = m; };
+  const moodFor = (t) => (/atenci[oó]n|no est[aá] (corriendo|en l[ií]nea)|sin respuesta|ca[ií]d[oa]|fall[oa]|error|peligro|vencer|intentos fallidos/i.test(t) ? 'serious'
+    : /perfecto|listo|todo en orden|en l[ií]nea|enviado|anotado|reinici|hola|buen[oa]s|gracias|hasta pronto/i.test(t) ? 'happy' : 'calm');
+  S.idleMood = 'calm';
+  const idleMood = () => S.idleMood;
+  let talk = null;
+  function startTalk() {
+    stopTalk(); let amp = 1, cur = 0, last = performance.now(); const t0 = last;
+    talk = { raf: 0, seen: false, bound: 0, bump() { this.seen = true; this.bound = performance.now(); amp = 1; } };
+    const frame = (t) => {
+      const x = (t - t0) / 1000;
+      let base = Math.max(0, Math.sin(x * 2 * Math.PI * 5.4 + Math.sin(x * 2.3) * 2.2)) * (0.55 + 0.45 * Math.abs(Math.sin(x * 1.7)));
+      if (talk.seen && t - talk.bound > 420) base *= 0.12; // pausa entre frases
+      cur += (base * amp - cur) * 0.5; amp = Math.max(0.6, amp - 0.015);
+      head.style.setProperty('--jaw', cur.toFixed(3));
+      talk.raf = requestAnimationFrame(frame);
+    };
+    talk.raf = requestAnimationFrame(frame);
+  }
+  function stopTalk() { if (talk) { cancelAnimationFrame(talk.raf); talk = null; } head.style.setProperty('--jaw', 0); }
+  (function blinkLoop() { setTimeout(() => { head.classList.add('blink'); setTimeout(() => head.classList.remove('blink'), 140); blinkLoop(); }, 2800 + Math.random() * 3600); })();
   let voiceEs = null;
   const pickVoice = () => { const v = speechSynthesis.getVoices(); voiceEs = v.find((x) => /es-AR/i.test(x.lang)) || v.find((x) => /es-(MX|US|419)/i.test(x.lang)) || v.find((x) => /^es/i.test(x.lang)) || null; };
   if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
@@ -42,8 +65,9 @@
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = voiceEs?.lang || 'es-AR'; if (voiceEs) u.voice = voiceEs; u.rate = 1.02;
-      u.onstart = () => setEye('speaking');
-      u.onend = u.onerror = () => { setEye('idle'); ok(); };
+      u.onstart = () => { setEye('speaking'); setMood(moodFor(text)); startTalk(); };
+      u.onboundary = () => talk?.bump();
+      u.onend = u.onerror = () => { stopTalk(); setEye('idle'); setMood(idleMood()); ok(); };
       speechSynthesis.speak(u);
     });
   }
@@ -330,6 +354,9 @@
       const [st, ev, nt, un] = await Promise.all([api('/api/state'), api('/api/events?limit=40'), api('/api/notes'), api('/api/messages/unread').catch(() => ({ count: 0, from: {} }))]);
       S.data = st; S.events = ev; S.notes = nt;
       renderSides(); renderCards(); renderSites(); renderEvents(); renderRecent();
+      const bad = (S.data.resources || []).filter((r) => r.kind !== 'sistema' && r.status !== 'running').length + (S.data.targets || []).filter((t) => t.ok === false).length;
+      S.idleMood = !S.data.docker.ok || bad >= 3 ? 'alert' : bad ? 'serious' : 'calm';
+      if (!talk && eye.dataset.state === 'idle' && eye.dataset.mood !== 'thinking') setMood(idleMood());
       setUnread(un);
     } catch (e) { if (e.status === 401) location.reload(); else $('say').textContent = 'Sin conexión con la estación: ' + e.message; }
   }
@@ -467,15 +494,15 @@
   }
   async function sendChat(text) {
     text = String(text || '').trim(); if (!text) return;
-    openChat(); bubble('user', text); chatState('Pensando…');
+    openChat(); bubble('user', text); chatState('Pensando…'); setMood('thinking');
     const wait = bubble('puma', '…');
     try {
       const out = await api('/api/agent', { method: 'POST', body: { text, history: CH.hist.slice(-8) } });
       wait.textContent = out.reply;
       CH.hist.push({ role: 'user', content: text }, { role: 'assistant', content: out.reply });
       if (out.proposal) proposal(out.proposal);
-      idleState(); await chatSpeak(out.reply);
-    } catch (e) { wait.textContent = 'No pude responder: ' + e.message; idleState(); }
+      idleState(); setMood(moodFor(out.reply)); await chatSpeak(out.reply); setMood(idleMood());
+    } catch (e) { wait.textContent = 'No pude responder: ' + e.message; idleState(); setMood(idleMood()); }
   }
   function openChat() {
     if (!CH.open) {
