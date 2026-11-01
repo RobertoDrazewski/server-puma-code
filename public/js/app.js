@@ -161,6 +161,26 @@
     for (const [k, items] of fam) { const h = document.createElement('h2'); h.textContent = k; box.append(h); items.forEach((r) => box.append(projectDial(r, rankOf(r)))); }
   }
 
+  function siteDial(t) {
+    const el = document.createElement('div'); el.className = 'dial';
+    const up = t.up24 != null ? t.up24 : (t.ok ? 100 : 0);
+    const col = t.ok === false ? 'var(--bad)' : up < 99 ? 'var(--warn)' : 'var(--ok)';
+    const led = t.ok === false ? 'bad' : t.ok == null ? 'warn' : '';
+    el.title = `${t.url}\nHTTP ${t.status ?? '–'} · promedio ${t.avgMs ?? '–'} ms`;
+    el.innerHTML = `<div class="gauge"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="30" fill="rgba(2,8,12,.92)"/>${arc(R1, t.ok == null ? 0 : up, col, 3.6)}
+      <text x="50" y="50" text-anchor="middle" fill="#dff7ff" font-family="Share Tech Mono, monospace" font-size="${t.ms != null ? 11.5 : 9}">${t.ms != null ? t.ms + ' ms' : '…'}</text>
+      <text x="50" y="59.5" text-anchor="middle" fill="${col}" font-family="Share Tech Mono, monospace" font-size="6.2">${t.ok === false ? 'SIN RESPUESTA' : t.up24 != null ? t.up24.toFixed(1) + '% 24h' : 'midiendo'}</text></svg><img class="ring" src="/assets/gauge-ring.webp" alt=""></div>
+      <div class="d-name"><span class="led ${led}"></span><span class="t">${esc(t.host)}</span></div>
+      <div class="d-line">${t.owner && t.owner !== 'externo' ? esc(t.owner) : 'sitio externo'}${t.certDays != null ? ` · cert ${t.certDays} d` : ''}</div>`;
+    el.addEventListener('click', () => window.open(t.url, '_blank', 'noopener'));
+    return el;
+  }
+  function renderSites() {
+    const list = (S.data?.targets || []).slice().sort((a, b) => (a.ok === false) - (b.ok === false) || a.host.localeCompare(b.host));
+    $('sites-grid').replaceChildren(...list.map(siteDial));
+    $('sites-hint').textContent = list.length ? `${list.filter((t) => t.ok).length} de ${list.length} en línea` : 'Sin sitios configurados (se descubren por Traefik o EXTRA_URLS)';
+  }
+
   /* ---------- Detalle ---------- */
   async function openDrawer(name) {
     S.open = name; $('drawer').hidden = false;
@@ -284,7 +304,7 @@
     try {
       const [st, ev, nt] = await Promise.all([api('/api/state'), api('/api/events?limit=40'), api('/api/notes')]);
       S.data = st; S.events = ev; S.notes = nt;
-      renderSides(); renderCards(); renderEvents();
+      renderSides(); renderCards(); renderSites(); renderEvents();
     } catch (e) { if (e.status === 401) location.reload(); else $('say').textContent = 'Sin conexión con la estación: ' + e.message; }
   }
   async function brief(force) {
