@@ -39,31 +39,33 @@
     : /perfecto|listo|todo en orden|en l[ií]nea|enviado|anotado|reinici|hola|buen[oa]s|gracias|hasta pronto/i.test(t) ? 'happy' : 'calm');
   S.idleMood = 'calm';
   const idleMood = () => S.idleMood;
-  let talk = null;
+  let talk = null, glowLast = -1;
+  const setGlow = (v) => { v = Math.round(v * 20) / 20; if (v !== glowLast) { glowLast = v; eye.style.setProperty('--lvl', v); } }; // brillo cian según la voz
   function startTalk(level) {
     stopTalk(); let amp = 1, cur = 0, last = performance.now(); const t0 = last;
     talk = { raf: 0, seen: false, bound: 0, bump() { this.seen = true; this.bound = performance.now(); amp = 1; } };
     const frame = (t) => {
       if (level) { // voz neuronal: la mandíbula sigue el volumen real del audio
         cur += (Math.min(1, level() * 3.2) - cur) * 0.55;
-        head.style.setProperty('--jaw', cur.toFixed(3));
+        head.style.setProperty('--jaw', cur.toFixed(3)); setGlow(cur);
         talk.raf = requestAnimationFrame(frame); return;
       }
       const x = (t - t0) / 1000;
       let base = Math.max(0, Math.sin(x * 2 * Math.PI * 5.4 + Math.sin(x * 2.3) * 2.2)) * (0.55 + 0.45 * Math.abs(Math.sin(x * 1.7)));
       if (talk.seen && t - talk.bound > 420) base *= 0.12; // pausa entre frases
       cur += (base * amp - cur) * 0.5; amp = Math.max(0.6, amp - 0.015);
-      head.style.setProperty('--jaw', cur.toFixed(3));
+      head.style.setProperty('--jaw', cur.toFixed(3)); setGlow(cur);
       talk.raf = requestAnimationFrame(frame);
     };
     talk.raf = requestAnimationFrame(frame);
   }
-  function stopTalk() { if (talk) { cancelAnimationFrame(talk.raf); talk = null; } head.style.setProperty('--jaw', 0); }
+  function stopTalk() { if (talk) { cancelAnimationFrame(talk.raf); talk = null; } head.style.setProperty('--jaw', 0); setGlow(0); }
   (function blinkLoop() { setTimeout(() => { head.classList.add('blink'); setTimeout(() => head.classList.remove('blink'), 140); blinkLoop(); }, 2800 + Math.random() * 3600); })();
   let voiceEs = null;
   const pickVoice = () => { const v = speechSynthesis.getVoices(); voiceEs = v.find((x) => /es-AR/i.test(x.lang)) || v.find((x) => /es-(MX|US|419)/i.test(x.lang)) || v.find((x) => /^es/i.test(x.lang)) || null; };
   if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
   // Voz neuronal (OpenAI) con respaldo a la voz del navegador.
+  const RITMO = 1.15; // un poco más rápido que lo natural
   const V = { el: new Audio(), ctx: null, an: null, buf: null, ready: false, token: 0, finish: null };
   V.el.preload = 'auto'; V.el.playsInline = true;
   const SILENCIO = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
@@ -106,6 +108,7 @@
       V.el.onended = () => end(true);
       V.el.onerror = () => end(false);
       V.el.src = url;
+      V.el.defaultPlaybackRate = V.el.playbackRate = RITMO;
       V.el.play().then(() => { setEye('speaking'); setMood(moodFor(text)); if (V.ctx?.state === 'suspended') V.ctx.resume?.(); startTalk(V.an && V.ctx?.state === 'running' ? audioLevel : null); }).catch(() => end(false));
     });
   }
@@ -114,7 +117,7 @@
     return new Promise((ok) => {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = voiceEs?.lang || 'es-AR'; if (voiceEs) u.voice = voiceEs; u.rate = 1.02;
+      u.lang = voiceEs?.lang || 'es-AR'; if (voiceEs) u.voice = voiceEs; u.rate = 1.12;
       u.onstart = () => { setEye('speaking'); setMood(moodFor(text)); startTalk(); };
       u.onboundary = () => talk?.bump();
       u.onend = u.onerror = () => { stopTalk(); setEye('idle'); setMood(idleMood()); ok(); };
@@ -122,6 +125,7 @@
     });
   }
   async function speak(text, quiet = false) {
+    S.lastSaid = text;
     if (!quiet) $('say').textContent = text;
     if (!S.voice) return;
     stopSpeech();
@@ -473,7 +477,6 @@
   $('m-off').onclick = openClose;
   $('p-logout').onclick = logout;
   $('m-brief').onclick = () => { $('menu').hidden = true; show('panel'); brief(true); };
-  $('m-voice').onclick = () => { S.voice = !S.voice; if (!S.voice) stopSpeech(); setEye('idle'); $('m-voice').textContent = 'Voz: ' + (S.voice ? 'activada' : 'silenciada'); };
   $('say').onclick = () => { if (S.lastBrief) speak(S.lastBrief); };
 
   /* ---------- Novedades, buzón ---------- */
@@ -548,6 +551,7 @@
     $('chat-log').append(d); $('chat-log').scrollTop = $('chat-log').scrollHeight;
   }
   function chatSpeak(text) {
+    S.lastSaid = text;
     if (!CH.voice) return Promise.resolve();
     pauseWake(); CH.speaking = true;
     return speak(text, true).finally(() => { CH.speaking = false; resumeWake(); });
@@ -611,7 +615,29 @@
   $('chat-x').onclick = closeChat;
   $('m-puma').onclick = () => { $('menu').hidden = true; openChat(); };
   $('chat-wake').onclick = () => setWake(!CH.wake);
-  $('chat-voice').onclick = () => { CH.voice = !CH.voice; $('chat-voice').classList.toggle('on', CH.voice); $('chat-voice').setAttribute('aria-pressed', CH.voice); if (!CH.voice) { stopSpeech(); setEye('idle'); } };
+  $('chat-voice').onclick = () => { CH.voice = !CH.voice; if (!CH.voice) { stopSpeech(); setEye('idle'); } syncVoiceUi(); };
+  // Voz activada/silenciada: se refleja en el menú, en el chat y en la cabeza del Puma.
+  const muteBadge = document.createElement('span'); muteBadge.className = 'mute-badge'; muteBadge.textContent = 'Voz silenciada · tocá para activar'; eye.append(muteBadge);
+  function syncVoiceUi() {
+    $('m-voice').textContent = 'Voz: ' + (S.voice ? 'activada' : 'silenciada');
+    $('chat-voice').classList.toggle('on', CH.voice); $('chat-voice').setAttribute('aria-pressed', CH.voice);
+    eye.classList.toggle('muted', !S.voice && !CH.voice);
+  }
+  const puma = eye.querySelector('.eye');
+  puma.setAttribute('role', 'button'); puma.tabIndex = 0; puma.setAttribute('aria-label', 'Activar o silenciar la voz de Puma');
+  function toggleVoice() {
+    unlockAudio(); // en el celular el toque habilita el audio
+    if (S.voice || CH.voice) { // callar
+      S.voice = false; CH.voice = false; stopSpeech(); setEye('idle'); setMood(idleMood()); syncVoiceUi();
+    } else { // activar y leer lo último
+      S.voice = true; CH.voice = true; syncVoiceUi();
+      const t = S.lastSaid || S.lastBrief; if (t) speak(t, true);
+    }
+  }
+  puma.onclick = toggleVoice;
+  puma.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleVoice(); } };
+  $('m-voice').onclick = () => { S.voice = !S.voice; if (!S.voice) stopSpeech(); setEye('idle'); syncVoiceUi(); };
+
   $('chat-form').onsubmit = (e) => { e.preventDefault(); const t = $('chat-in').value; $('chat-in').value = ''; sendChat(t); };
   $('chat-mic').onclick = () => {
     if (!SR) { alert('Tu navegador no permite dictado por voz; escribile a Puma.'); return; }

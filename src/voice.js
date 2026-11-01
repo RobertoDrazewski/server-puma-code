@@ -8,6 +8,7 @@ import { db } from './db.js';
 const MAX_CHARS = 1200;
 const INSTRUCCIONES = 'Sos Puma, el orquestador de una estación steampunk de Puma Code. Hablá en español rioplatense de Argentina, '
   + 'con voseo natural y acento argentino. Voz cálida, segura y cercana, con ritmo fluido y pausas breves entre ideas. '
+  + 'Hablá con ritmo ágil y dinámico, algo más rápido que lo habitual, sin arrastrar las palabras ni hacer pausas largas. '
   + 'Sonás como una persona real conversando, no como un locutor ni un robot.';
 
 const cache = new Map(); // clave -> Buffer (se conservan los últimos 12)
