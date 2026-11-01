@@ -225,9 +225,13 @@ function syncTargets(list) {
     if (r.kind === 'sistema') continue;
     for (const h of r.hosts) want.set(`https://${h}/`, r.name);
   }
-  for (const u of cfg.extraUrls) {
+  for (const item of cfg.extraUrls) {
+    // Formato: "https://sitio.com" o "proyecto=https://sitio.com" (lo asocia al reloj de ese proyecto)
+    const m = item.match(/^([^=/:]+)=(.+)$/);
+    const [owner, u] = m ? [m[1].trim(), m[2].trim()] : ['externo', item];
     const url = /^https?:\/\//.test(u) ? u : `https://${u}`;
-    if (!want.has(url)) want.set(url, 'externo');
+    try { new URL(url); } catch { continue; }
+    if (!want.has(url)) want.set(url, owner);
   }
   for (const [url, owner] of want) {
     if (!targets.has(url)) targets.set(url, { url, owner, host: new URL(url).hostname, ok: null, ms: null, status: null, fails: 0, up24: null, avgMs: null, checkedAt: 0 });
