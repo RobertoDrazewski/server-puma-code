@@ -194,7 +194,8 @@ app.get('/api/terminal/pubkey', requireSuper, (_req, res) => res.type('text').se
 
 app.use('/vendor/xterm', express.static(path.join(root, 'node_modules/@xterm/xterm')));
 app.use('/vendor/xterm-fit', express.static(path.join(root, 'node_modules/@xterm/addon-fit')));
-app.use(express.static(path.join(root, 'public'), { maxAge: cfg.prod ? '1h' : 0 }));
+// Siempre revalida (ETag): así una actualización se ve enseguida, sin quedar pegada en el navegador ni en Cloudflare.
+app.use(express.static(path.join(root, 'public'), { maxAge: 0, setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache, must-revalidate') }));
 
 const server = http.createServer(app);
 ensureKey();
