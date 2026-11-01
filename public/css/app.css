@@ -278,9 +278,10 @@ main { min-width: 0; }
 .d-name span.t { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-line { font-family: var(--mono); font-size: 11px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-name .led, .d-name .chip, .d-name .badge { flex: none; }
-.d-line .ok { color: var(--ok); } .d-line .bad { color: var(--bad); } .d-line .warn { color: var(--warn); }
+.d-line .mute { color: var(--muted); } .d-line .ok { color: var(--ok); } .d-line .bad { color: var(--bad); } .d-line .warn { color: var(--warn); }
 .led { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--ok); box-shadow: 0 0 9px var(--ok); }
 .led.warn { background: var(--warn); box-shadow: 0 0 9px var(--warn); }
+.led.idle { background: #5d7480; box-shadow: none; }
 .led.bad { background: var(--bad); box-shadow: 0 0 9px var(--bad); animation: pulse 1s infinite; }
 .chip { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--brass-d); color: var(--brass); text-transform: uppercase; flex: none; }
 .chip.top1 { background: linear-gradient(#e0b165, #9a6a28); color: #1b1203; border-color: #e7c486; font-weight: 700; }

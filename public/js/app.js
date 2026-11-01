@@ -85,14 +85,15 @@
     const host = S.data.host;
     const memPct = host ? (r.mem / host.memTotal) * 100 : 0;
     const cpuV = sq(r.cpu), memV = sq(memPct * 3);
-    const led = r.status === 'exited' ? 'bad' : r.status === 'degraded' || r.online === false || r.healthy === false ? 'warn' : '';
+    const idle = idleAux(r);
+    const led = idle ? 'idle' : r.status === 'exited' ? 'bad' : r.status === 'degraded' || r.online === false || r.healthy === false ? 'warn' : '';
     const site = (r.sites || [])[0];
     const el = document.createElement('div');
     el.className = 'dial' + (led ? ' ' + led : ''); el.tabIndex = 0; el.setAttribute('role', 'button');
     el.title = `${r.name}\nCPU ${pct(r.cpu)} · RAM ${bytes(r.mem)} (${pct(memPct)} del servidor)`;
     const badge = rank && rank <= 3 && r.cpu > 0.3 ? `<span class="chip top${rank}">#${rank}</span>` : '';
     const kind = { base: 'DB', sistema: 'SYS' }[r.kind] || '';
-    const stateTxt = r.status === 'exited' ? '<span class="bad">detenido</span>' : r.status === 'degraded' ? '<span class="warn">parcial</span>' : site ? `<span class="${site.ok ? 'ok' : 'bad'}">${site.ok ? 'en línea' : 'sin respuesta'}${site.ms != null ? ' · ' + site.ms + ' ms' : ''}</span>` : '<span class="ok">corriendo</span>';
+    const stateTxt = idle ? '<span class="mute">auxiliar · inactivo</span>' : r.status === 'exited' ? '<span class="bad">detenido</span>' : r.status === 'degraded' ? '<span class="warn">parcial</span>' : site ? `<span class="${site.ok ? 'ok' : 'bad'}">${site.ok ? 'en línea' : 'sin respuesta'}${site.ms != null ? ' · ' + site.ms + ' ms' : ''}</span>` : '<span class="ok">corriendo</span>';
     const up = site?.up24 != null ? `${site.up24.toFixed(site.up24 >= 99.95 ? 0 : 1)}% 24h` : '';
     el.innerHTML = `<div class="gauge"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="30" fill="rgba(2,8,12,.92)"/>
       ${arc(R1, cpuV, level(cpuV, 'var(--cyan)'), 3.6)}${arc(R2, memV, 'var(--brass)', 3.6)}
@@ -139,7 +140,8 @@
 
   /* ---------- Proyectos ---------- */
   const score = (r) => r.cpu + (S.data.host ? (r.mem / S.data.host.memTotal) * 100 : 0) * 0.6;
-  const problems = (r) => (r.status !== 'running' ? 2 : r.online === false || r.healthy === false ? 1 : 0);
+  const idleAux = (r) => r.kind === 'sistema' && r.status === 'exited'; // contenedor auxiliar apagado (p. ej. el de compilación de Coolify): es normal
+  const problems = (r) => (idleAux(r) ? 0 : r.status !== 'running' ? 2 : r.online === false || r.healthy === false ? 1 : 0);
   function visible() {
     let list = (S.data?.resources || []).slice();
     const k = $('f-kind').value, q = $('q').value.trim().toLowerCase();
@@ -199,7 +201,7 @@
     S.open = name; $('drawer').hidden = false;
     const r = S.data.resources.find((x) => x.name === name); if (!r) return;
     const admin = isAdmin();
-    $('drawer-body').innerHTML = `<div class="d-title"><span class="led ${r.status === 'running' ? '' : 'bad'}"></span><h3>${esc(r.name)}</h3></div>
+    $('drawer-body').innerHTML = `<div class="d-title"><span class="led ${r.status === 'running' ? '' : idleAux(r) ? 'idle' : 'bad'}"></span><h3>${esc(r.name)}</h3></div>
       <div class="c-sub">${esc((r.hosts || []).join(' · '))}</div>
       <div class="c-meta" style="margin-top:6px"><span>CPU ${pct(r.cpu)}</span><span>RAM ${bytes(r.mem)}</span><span>↓ ${rate(r.rx)}</span><span>↑ ${rate(r.tx)}</span></div>
       <div class="d-grid">
@@ -210,10 +212,10 @@
     const ct = $('ctab');
     r.containers.forEach((c) => {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${esc(c.name)}</td><td>${esc(c.status)}</td><td><div class="row-btns"><button class="btn small" data-a="logs">Logs</button>${admin ? '<button class="btn small warn" data-a="restart">Reiniciar</button>' : ''}</div></td>`;
+      tr.innerHTML = `<td>${esc(c.name)}</td><td>${esc(c.status)}</td><td><div class="row-btns"><button class="btn small" data-a="logs">Logs</button>${admin ? `<button class="btn small warn" data-a="restart">${c.state === 'running' ? 'Reiniciar' : 'Iniciar'}</button>` : ''}</div></td>`;
       tr.querySelector('[data-a=logs]').onclick = async () => { $('logs').textContent = 'Cargando…'; try { $('logs').textContent = (await api(`/api/containers/${c.id}/logs?tail=120`)) || '(sin salida)'; } catch (e) { $('logs').textContent = e.message; } };
       const rb = tr.querySelector('[data-a=restart]');
-      if (rb) rb.onclick = async () => { if (!confirm(`¿Reiniciar ${c.name}?`)) return; rb.disabled = true; try { await api(`/api/containers/${c.id}/restart`, { method: 'POST', body: {} }); rb.textContent = 'Listo'; } catch (e) { alert(e.message); rb.disabled = false; } };
+      if (rb) rb.onclick = async () => { if (!confirm(`¿${c.state === 'running' ? 'Reiniciar' : 'Iniciar'} ${c.name}?`)) return; rb.disabled = true; try { await api(`/api/containers/${c.id}/restart`, { method: 'POST', body: {} }); rb.textContent = 'Listo'; } catch (e) { alert(e.message); rb.disabled = false; } };
       ct.append(tr);
     });
     if (r.sites?.length) $('sites').innerHTML = '<h4>Sitios</h4>' + r.sites.map((s) => `<div class="c-meta"><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.host)}</a><span class="${s.ok ? 'ok' : 'bad'}">${s.ok ? 'en línea' : 'sin respuesta'}</span><span>${s.ms ?? '–'} ms</span><span>prom. ${s.avgMs ?? '–'} ms</span><span>${s.up24 != null ? s.up24.toFixed(1) + '% 24h' : ''}</span></div>`).join('');
