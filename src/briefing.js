@@ -73,7 +73,7 @@ export function securityFacts() {
     sitios_sin_respuesta: state.targets.filter((t) => t.ok === false).map((t) => t.host),
     docker_conectado: !!state.docker.ok,
     terminal_web: cfg.terminalEnabled ? `activa (${cfg.terminalMode})` : 'desactivada',
-    capa_cloudflare_access: cfg.cfTeamDomain ? 'activa' : 'no configurada',
+    capa_cloudflare_access: cfg.cfTeamDomain && cfg.cfAud ? 'activa' : 'no configurada',
   };
 }
 

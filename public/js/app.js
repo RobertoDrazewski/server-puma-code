@@ -42,7 +42,7 @@
   let talk = null, glowLast = -1;
   const setGlow = (v) => { v = Math.round(v * 20) / 20; if (v !== glowLast) { glowLast = v; eye.style.setProperty('--lvl', v); } }; // brillo cian según la voz
   function startTalk(level) {
-    stopTalk(); let amp = 1, cur = 0, last = performance.now(); const t0 = last;
+    stopTalk(); document.body.classList.add('talking'); let amp = 1, cur = 0, last = performance.now(); const t0 = last;
     talk = { raf: 0, seen: false, bound: 0, bump() { this.seen = true; this.bound = performance.now(); amp = 1; } };
     const frame = (t) => {
       if (level) { // voz neuronal: la mandíbula sigue el volumen real del audio
@@ -59,7 +59,7 @@
     };
     talk.raf = requestAnimationFrame(frame);
   }
-  function stopTalk() { if (talk) { cancelAnimationFrame(talk.raf); talk = null; } head.style.setProperty('--jaw', 0); setGlow(0); }
+  function stopTalk() { document.body.classList.remove('talking'); if (talk) { cancelAnimationFrame(talk.raf); talk = null; } head.style.setProperty('--jaw', 0); setGlow(0); }
   (function blinkLoop() { setTimeout(() => { head.classList.add('blink'); setTimeout(() => head.classList.remove('blink'), 140); blinkLoop(); }, 2800 + Math.random() * 3600); })();
   let voiceEs = null;
   const pickVoice = () => { const v = speechSynthesis.getVoices(); voiceEs = v.find((x) => /es-AR/i.test(x.lang)) || v.find((x) => /es-(MX|US|419)/i.test(x.lang)) || v.find((x) => /^es/i.test(x.lang)) || null; };
@@ -109,7 +109,7 @@
       V.el.onerror = () => end(false);
       V.el.src = url;
       V.el.defaultPlaybackRate = V.el.playbackRate = RITMO;
-      V.el.play().then(() => { setEye('speaking'); setMood(moodFor(text)); if (V.ctx?.state === 'suspended') V.ctx.resume?.(); startTalk(V.an && V.ctx?.state === 'running' ? audioLevel : null); }).catch(() => end(false));
+      V.el.play().then(() => { setEye('speaking'); setMood(moodFor(text)); if (V.ctx?.state === 'suspended') V.ctx.resume?.(); startTalk(V.an && V.ctx?.state === 'running' ? audioLevel : null); }).catch((e) => { if (e?.name === 'NotAllowedError') $('c-state').textContent = 'El navegador bloqueó el audio: tocá ▶ para escuchar'; end(false); });
     });
   }
   function speakBrowser(text) {
@@ -124,10 +124,10 @@
       speechSynthesis.speak(u);
     });
   }
-  async function speak(text, quiet = false) {
+  async function speak(text, quiet = false, force = false) {
     S.lastSaid = text;
     if (!quiet) $('say').textContent = text;
-    if (!S.voice) return;
+    if (!S.voice && !force) return;
     stopSpeech();
     if (Date.now() > (S.neuralOff || 0)) {
       const played = await speakNeural(text);
@@ -400,7 +400,7 @@
     if (view === 'access' && !isSuper()) view = 'panel';
     S.view = view;
     document.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== 'v-' + view; });
-    document.querySelectorAll('#menu [data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
+    document.querySelectorAll('#menu [data-view], #nav [data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
     $('view-title').textContent = TITLES[view];
     $('menu').hidden = true; window.scrollTo(0, 0);
     if (view === 'access') renderAccess();
@@ -411,6 +411,13 @@
   $('menu').addEventListener('click', (e) => { if (e.target.id === 'menu') $('menu').hidden = true; });
   document.querySelectorAll('#menu [data-view]').forEach((b) => { b.onclick = () => show(b.dataset.view); });
   $('avatar-top').onclick = () => show('profile');
+  $('nav').addEventListener('click', (e) => { // barra superior (PC)
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.view) show(b.dataset.view);
+    else if (b.dataset.act === 'mail') goMail();
+    else if (b.dataset.act === 'puma') openChat();
+    else if (b.dataset.act === 'off') openClose();
+  });
 
   /* ---------- Datos ---------- */
   async function refresh() {
@@ -476,7 +483,6 @@
   $('close-mic').onclick = () => { const b = $('close-mic'); b.disabled = true; const base = $('close-text').value; rec = listen((t) => { $('close-text').value = (base ? base + ' ' : '') + t; }, (ok) => { b.disabled = false; if (!ok) alert('Tu navegador no permite dictado; escribí la respuesta.'); }); };
   $('m-off').onclick = openClose;
   $('p-logout').onclick = logout;
-  $('m-brief').onclick = () => { $('menu').hidden = true; show('panel'); brief(true); };
   $('say').onclick = () => { if (S.lastBrief) speak(S.lastBrief); };
 
   /* ---------- Novedades, buzón ---------- */
@@ -488,7 +494,7 @@
     const n = un.count || 0, changed = n !== S.unread;
     S.unread = n; S.unreadFrom = un.from || {};
     $('mail-badge').hidden = !n; $('mail-badge').textContent = n;
-    $('m-mail-n').hidden = !n; $('m-mail-n').textContent = n;
+    $('m-mail-n').hidden = !n; $('m-mail-n').textContent = n; $('n-mail-n').hidden = !n; $('n-mail-n').textContent = n;
     if (S.view === 'panel' && document.visibilityState === 'visible' && (changed || (S.unreadFrom[S.mailWith] || 0) > 0)) loadMail();
   }
   async function initMail() {
@@ -512,7 +518,7 @@
     const log = $('mail-log'), stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
     log.innerHTML = rows.length ? rows.map((m) => `<div class="msg${m.from_email === S.me.email ? ' me' : ''}">${esc(m.text)}<time>${stamp(m.ts)}</time></div>`).join('') : `<p class="empty">Todavía no hay mensajes. Dejale uno a ${esc(who.call || who.name)}.</p>`;
     if (stick || rows.length < 4) log.scrollTop = log.scrollHeight;
-    if (S.unreadFrom[S.mailWith]) { S.unread = Math.max(0, S.unread - S.unreadFrom[S.mailWith]); S.unreadFrom[S.mailWith] = 0; $('mail-badge').hidden = !S.unread; $('mail-badge').textContent = S.unread; $('m-mail-n').hidden = !S.unread; $('m-mail-n').textContent = S.unread; }
+    if (S.unreadFrom[S.mailWith]) { S.unread = Math.max(0, S.unread - S.unreadFrom[S.mailWith]); S.unreadFrom[S.mailWith] = 0; $('mail-badge').hidden = !S.unread; $('mail-badge').textContent = S.unread; $('m-mail-n').hidden = !S.unread; $('m-mail-n').textContent = S.unread; $('n-mail-n').hidden = !S.unread; $('n-mail-n').textContent = S.unread; }
   }
   $('mail-form').onsubmit = async (e) => {
     e.preventDefault(); const t = $('mail-in').value.trim(); if (!t || !S.mailWith) return;
@@ -527,7 +533,7 @@
   const CH = { open: false, hist: [], wake: false, wakeRec: null, awaiting: 0, speaking: false, voice: true, mic: null, started: false };
   const norm = (t) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const WAKE = /\b(?:hey|ey|hei|hay|oye|ok|hola)[\s,.]*puma\b[\s,.:;!?-]*/;
-  const chatState = (t) => { $('chat-state').textContent = t; };
+  const chatState = (t) => { $('chat-state').textContent = t; $('c-state').textContent = t; };
   const idleState = () => chatState(CH.wake ? 'Escuchando «Hey Puma»…' : 'Decí «Hey Puma» o escribime');
 
   function bubble(role, text) {
@@ -600,7 +606,7 @@
   function pauseWake() { const r = CH.wakeRec; CH.wakeRec = null; try { r?.abort(); } catch { /* nada */ } }
   function resumeWake() { if (CH.wake) setTimeout(startWake, 500); }
   function setWake(on) {
-    CH.wake = on; $('chat-wake').classList.toggle('on', on); $('chat-wake').setAttribute('aria-pressed', on);
+    CH.wake = on; $('chat-wake').classList.toggle('on', on); $('chat-wake').setAttribute('aria-pressed', on); $('c-wake').classList.toggle('on', on); $('c-wake').setAttribute('aria-pressed', on);
     $('puma-fab').classList.toggle('listening', on);
     try { localStorage.setItem('puma.wake', on ? '1' : '0'); } catch { /* sin storage */ }
     if (on) startWake(); else pauseWake();
@@ -609,7 +615,7 @@
   function initChat() {
     $('puma-fab').hidden = false;
     let saved = '0'; try { saved = localStorage.getItem('puma.wake') || '0'; } catch { /* sin storage */ }
-    if (saved === '1' && SR && !CH.wake) setWake(true);
+    if (saved !== '0' && SR && !CH.wake) setWake(true); // «Hey Puma» queda activo salvo que lo apagues
   }
   $('puma-fab').onclick = () => (CH.open ? closeChat() : openChat());
   $('chat-x').onclick = closeChat;
@@ -619,9 +625,9 @@
   // Voz activada/silenciada: se refleja en el menú, en el chat y en la cabeza del Puma.
   const muteBadge = document.createElement('span'); muteBadge.className = 'mute-badge'; muteBadge.textContent = 'Voz silenciada · tocá para activar'; eye.append(muteBadge);
   function syncVoiceUi() {
-    $('m-voice').textContent = 'Voz: ' + (S.voice ? 'activada' : 'silenciada');
     $('chat-voice').classList.toggle('on', CH.voice); $('chat-voice').setAttribute('aria-pressed', CH.voice);
     eye.classList.toggle('muted', !S.voice && !CH.voice);
+    const on = S.voice || CH.voice; $('c-voice').classList.toggle('on', on); $('c-voice').setAttribute('aria-pressed', on); $('c-voice').title = on ? 'Voz activada (tocá para silenciar)' : 'Voz silenciada (tocá para activar)';
   }
   const puma = eye.querySelector('.eye');
   puma.setAttribute('role', 'button'); puma.tabIndex = 0; puma.setAttribute('aria-label', 'Activar o silenciar la voz de Puma');
@@ -636,19 +642,26 @@
   }
   puma.onclick = toggleVoice;
   puma.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleVoice(); } };
-  $('m-voice').onclick = () => { S.voice = !S.voice; if (!S.voice) stopSpeech(); setEye('idle'); syncVoiceUi(); };
 
   $('chat-form').onsubmit = (e) => { e.preventDefault(); const t = $('chat-in').value; $('chat-in').value = ''; sendChat(t); };
-  $('chat-mic').onclick = () => {
+  function toggleDictation(btn) {
     if (!SR) { alert('Tu navegador no permite dictado por voz; escribile a Puma.'); return; }
     if (CH.mic) { CH.mic.stop(); return; }
-    pauseWake(); const b = $('chat-mic'); b.classList.add('live'); chatState('Te escucho…'); let last = '';
-    CH.mic = listen((t) => { last = t; $('chat-in').value = t; }, () => {
-      CH.mic = null; b.classList.remove('live'); idleState(); resumeWake();
+    pauseWake(); [$('chat-mic'), $('c-mic')].forEach((x) => x.classList.add('live')); chatState('Te escucho…'); setEye('listening'); let last = '';
+    CH.mic = listen((t) => { last = t; $('chat-in').value = t; $('c-state').textContent = '«' + t + '»'; }, () => {
+      CH.mic = null; [$('chat-mic'), $('c-mic')].forEach((x) => x.classList.remove('live')); setEye('idle'); idleState(); resumeWake();
       const t = last.trim(); if (t) { $('chat-in').value = ''; sendChat(t.replace(WAKE, '').trim() || t); }
     });
-    if (!CH.mic) { b.classList.remove('live'); resumeWake(); }
-  };
+    if (!CH.mic) { [$('chat-mic'), $('c-mic')].forEach((x) => x.classList.remove('live')); resumeWake(); }
+  }
+  $('chat-mic').onclick = () => toggleDictation($('chat-mic'));
+  $('c-mic').onclick = () => toggleDictation($('c-mic'));
+
+  // Controles bajo la esfera
+  $('c-play').onclick = () => { unlockAudio(); if (S.lastBrief) speak(S.lastBrief, false, true); else brief(true); };
+  $('c-stop').onclick = () => { stopSpeech(); setEye('idle'); setMood(idleMood()); };
+  $('c-wake').onclick = () => { unlockAudio(); setWake(!CH.wake); };
+  $('c-voice').onclick = () => toggleVoice();
 
   /* ---------- Acceso ---------- */
   function enter(speakBrief) {

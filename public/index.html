@@ -28,7 +28,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap">
 <link rel="stylesheet" href="/vendor/xterm/css/xterm.css">
-<link rel="stylesheet" href="/css/app.css?v=20261101h">
+<link rel="stylesheet" href="/css/app.css?v=20261101i">
 </head>
 <body>
 <div id="space"></div>
@@ -53,6 +53,16 @@
     <button id="burger" class="burger" aria-label="Menú"><span></span><span></span><span></span></button>
     <img class="brand" src="/assets/wordmark.webp" alt="PumaCode">
     <div class="top-title"><b id="view-title">PANEL</b><span>Estación Puma · server.puma-code.com</span></div>
+    <nav id="nav" class="navbar" aria-label="Principal">
+      <button type="button" data-view="panel">Panel</button>
+      <button type="button" data-act="mail">Buzón <span id="n-mail-n" class="chip" hidden></span></button>
+      <button type="button" data-view="log">Registro</button>
+      <button type="button" data-view="access" data-super>Accesos</button>
+      <button type="button" data-view="profile">Perfil</button>
+      <i class="sep"></i>
+      <button type="button" data-act="puma">Hablar con Puma</button>
+      <button type="button" data-act="off" class="warn">Cierre de jornada</button>
+    </nav>
     <div class="top-right">
       <span id="clock" class="mono"></span>
       <button id="mail-top" class="icon-btn" aria-label="Buzón" title="Buzón"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></svg><b id="mail-badge" hidden></b></button>
@@ -72,8 +82,6 @@
       <button data-view="access" data-super>Accesos</button>
       <button data-view="profile">Mi perfil</button>
       <hr>
-      <button id="m-brief">Informe hablado</button>
-      <button id="m-voice">Voz: activada</button>
       <button id="m-off" class="warn">Cierre de jornada</button>
     </div>
   </nav>
@@ -97,7 +105,15 @@
             </div>
             <img class="frame" src="/assets/porthole.webp" alt="">
           </div>
-          <p id="say" class="say" aria-live="polite">Esperando lecturas…</p>
+          <div class="ctrls" role="toolbar" aria-label="Controles de voz de Puma">
+            <button id="c-play" class="cbtn" type="button" title="Escuchar el informe" aria-label="Escuchar el informe"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z"/></svg></button>
+            <button id="c-stop" class="cbtn" type="button" title="Detener" aria-label="Detener"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+            <button id="c-mic" class="cbtn" type="button" title="Hablarle a Puma (dictado)" aria-label="Hablarle a Puma"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+            <button id="c-wake" class="cbtn" type="button" aria-pressed="false" title="Escuchar «Hey Puma»" aria-label="Escuchar Hey Puma"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12h2m3-6v12m4-15v18m4-12v6m4-3h2"/></svg></button>
+            <button id="c-voice" class="cbtn on" type="button" aria-pressed="true" title="Voz de Puma" aria-label="Activar o silenciar la voz"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path class="w" d="M16 9a4 4 0 0 1 0 6m2.5-9a8 8 0 0 1 0 12"/></svg></button>
+          </div>
+          <p id="c-state" class="c-state" aria-live="polite"></p>
+          <div class="saybox"><p id="say" class="say" aria-live="polite">Esperando lecturas…</p></div>
         </div>
 
         <div class="side" id="side-r"></div>
@@ -218,8 +234,8 @@
   <header class="chat-head">
     <img src="/assets/logo-trans.webp" alt="">
     <div class="chat-title"><b>Puma</b><small id="chat-state">Decí «Hey Puma» o escribime</small></div>
-    <button id="chat-wake" class="icon-btn" type="button" title="Escuchar «Hey Puma»" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 12h2m3-5v10m3-13v16m3-13v10m3-5h2"/></svg></button>
-    <button id="chat-voice" class="icon-btn on" type="button" title="Voz de Puma" aria-pressed="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4Zm12 0a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg></button>
+    <button id="chat-wake" hidden class="icon-btn" type="button" title="Escuchar «Hey Puma»" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 12h2m3-5v10m3-13v16m3-13v10m3-5h2"/></svg></button>
+    <button id="chat-voice" hidden class="icon-btn on" type="button" title="Voz de Puma" aria-pressed="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9v6h4l5 4V5L8 9H4Zm12 0a4 4 0 0 1 0 6m2-9a8 8 0 0 1 0 12"/></svg></button>
     <button id="chat-x" class="icon-btn" type="button" aria-label="Cerrar">×</button>
   </header>
   <div id="chat-log" class="chat-log" aria-live="polite"></div>
@@ -246,6 +262,6 @@
 
 <script src="/vendor/xterm/lib/xterm.js"></script>
 <script src="/vendor/xterm-fit/lib/addon-fit.js"></script>
-<script src="/js/app.js?v=20261101h"></script>
+<script src="/js/app.js?v=20261101i"></script>
 </body>
 </html>
