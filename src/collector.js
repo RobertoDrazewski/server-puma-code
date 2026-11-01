@@ -18,6 +18,14 @@ export const state = {
 const prevC = new Map();   // id contenedor -> última lectura de CPU/red
 const spark = new Map();   // recurso -> últimos puntos para el minigráfico
 const prevState = new Map();
+const pendientes = new Map(); // proyectos vistos por primera vez, todavía sin anunciar
+const NUEVO_TRAS = 5 * 60;    // segundos que debe seguir vivo un proyecto para anunciarlo como nuevo
+const ESTADO = { exited: 'quedó apagado', degraded: 'funciona a medias' };
+const MOTIVO = {
+  ETIMEDOUT: 'tardó demasiado en responder', ENOTFOUND: 'no se encontró el dominio (DNS)', EAI_AGAIN: 'falló la resolución de DNS',
+  ECONNRESET: 'se cortó la conexión', ECONNREFUSED: 'rechazó la conexión', UND_ERR_CONNECT_TIMEOUT: 'tardó demasiado en conectar',
+  TimeoutError: 'tardó demasiado en responder', AbortError: 'tardó demasiado en responder',
+};
 const targets = new Map(); // url -> estado del chequeo
 const certs = new Map();   // host -> días restantes
 const cooldown = new Map();
@@ -167,7 +175,7 @@ async function cycle() {
   let res;
   try {
     res = await sampleContainers();
-    if (!state.docker.ok) addEvent('info', 'docker', 'docker', 'Conexión con Docker establecida');
+    if (!state.docker.ok) addEvent('info', 'docker', 'docker', 'La estación arrancó y ya está conectada a Docker');
     state.docker = { ok: true, error: '' };
   } catch (e) {
     state.docker = { ok: false, error: e.message };
@@ -185,12 +193,19 @@ async function cycle() {
     r.healthy = r.containers.some((c) => c.healthy === false) ? false : r.containers.some((c) => c.healthy === true) ? true : null;
     r.hosts = [...r.hosts];
     if (!db.prepare('SELECT 1 FROM known WHERE name=?').get(r.name)) {
-      db.prepare('INSERT INTO known VALUES (?,?)').run(r.name, ts);
-      if (seeded && r.kind !== 'sistema') addEvent('info', 'nuevo', r.name, `Proyecto nuevo detectado: ${r.name}`);
+      // Un proyecto nuevo se anuncia recién si sigue vivo después de unos minutos:
+      // así los contenedores temporales de compilación de Coolify no generan ruido.
+      const primera = pendientes.get(r.name) ?? ts;
+      pendientes.set(r.name, primera);
+      if (!seeded || r.kind === 'sistema' || ts - primera >= NUEVO_TRAS) {
+        db.prepare('INSERT INTO known VALUES (?,?)').run(r.name, ts);
+        pendientes.delete(r.name);
+        if (seeded && r.kind !== 'sistema') addEvent('info', 'nuevo', r.name, `Proyecto nuevo en el servidor: «${r.name}»`);
+      }
     }
     const before = prevState.get(r.name);
-    if (before === 'running' && r.status !== 'running') addEvent('critical', 'caido', r.name, `${r.name} dejó de correr (${r.status})`);
-    if (before && before !== 'running' && r.status === 'running') addEvent('info', 'recuperado', r.name, `${r.name} volvió a correr`);
+    if (before === 'running' && r.status !== 'running') addEvent('critical', 'caido', r.name, `«${r.name}» se detuvo: ${ESTADO[r.status] || r.status}`);
+    if (before && before !== 'running' && r.status === 'running') addEvent('info', 'recuperado', r.name, `«${r.name}» volvió a funcionar`);
     prevState.set(r.name, r.status);
 
     ins.run(ts, r.name, r.cpu, r.mem, r.rx, r.tx);
@@ -202,7 +217,9 @@ async function cycle() {
     list.push(r);
   }
   for (const [name] of prevState) if (!res.has(name)) {
-    if (prevState.get(name) !== 'gone') addEvent('warn', 'quitado', name, `${name} ya no existe en el servidor`);
+    // Solo se avisa de los proyectos que ya se habían anunciado; los temporales se descartan en silencio.
+    if (prevState.get(name) !== 'gone' && !pendientes.has(name)) addEvent('warn', 'quitado', name, `«${name}» fue retirado del servidor`);
+    pendientes.delete(name);
     prevState.set(name, 'gone');
   }
 
@@ -257,8 +274,8 @@ async function checkOne(t) {
   const was = t.ok;
   t.fails = ok ? 0 : t.fails + 1;
   t.ok = ok; t.ms = ms; t.status = status; t.checkedAt = Date.now();
-  if (!ok && t.fails === 2) addEvent('critical', 'sitio-caido', t.owner, `${t.host} no responde (${status || `sin conexión${errCode ? ': ' + errCode : ''}`})`);
-  if (ok && was === false) addEvent('info', 'sitio-ok', t.owner, `${t.host} volvió a responder`);
+  if (!ok && t.fails === 2) addEvent('critical', 'sitio-caido', t.owner, `El sitio ${t.host} no responde (${status ? 'error ' + status : MOTIVO[errCode] || errCode || 'sin conexión'})`);
+  if (ok && was === false) addEvent('info', 'sitio-ok', t.owner, `El sitio ${t.host} volvió a responder`);
   const row = db.prepare('SELECT AVG(ok) a, AVG(ms) m FROM checks WHERE target=? AND ts>?').get(t.url, now() - 86400);
   t.up24 = row.a == null ? null : Math.round(row.a * 1000) / 10;
   t.avgMs = row.m == null ? null : Math.round(row.m);
