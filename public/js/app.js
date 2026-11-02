@@ -159,10 +159,10 @@
   const level = (v, base) => (v > 90 ? 'var(--bad)' : v > 75 ? 'var(--warn)' : base);
 
   // Dial simple (indicadores del servidor)
-  function gauge(label, value, center, sub, base = 'var(--cyan)') {
+  function gauge(label, value, center, sub, base = 'var(--cyan)', good = false) { // good: más alto es mejor (en línea, contenedores)
     const w = document.createElement('div'); w.className = 'gcell';
     const v = Math.max(0, Math.min(100, value || 0));
-    w.innerHTML = `<div class="gauge"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="30" fill="rgba(2,8,12,.92)"/>${arc(R1 - 1, v, level(v, base), 5)}
+    w.innerHTML = `<div class="gauge"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="30" fill="rgba(2,8,12,.92)"/>${arc(R1 - 1, v, good ? (v >= 99.5 ? 'var(--ok)' : v >= 75 ? 'var(--warn)' : 'var(--bad)') : level(v, base), 5)}
       <text x="50" y="54" text-anchor="middle" fill="#dff7ff" font-family="Share Tech Mono, monospace" font-size="13">${esc(center)}</text></svg><img class="ring" src="/assets/gauge-ring.webp" alt=""></div>
       <div class="g-plate"><div class="g-cap">${esc(label)}</div><div class="g-sub" title="${esc(sub || '')}">${esc(sub || '')}</div></div>`;
     return w;
@@ -201,7 +201,7 @@
     const ram = (h.memUsed / h.memTotal) * 100, disk = h.diskTotal ? (h.diskUsed / h.diskTotal) * 100 : 0;
     const apps = (S.data.resources || []).filter((r) => r.kind !== 'sistema');
     const onl = apps.filter((r) => r.status === 'running' && r.online !== false).length;
-    const cts = (S.data.resources || []).flatMap((r) => r.containers);
+    const cts = (S.data.resources || []).filter((r) => !idleAux(r)).flatMap((r) => r.containers); // los auxiliares apagados (compilación de Coolify) no cuentan como caídos
     const run = cts.filter((c) => c.state === 'running').length;
     const loadPct = Math.min(100, (h.load[0] / h.cores) * 100);
     $('side-l').replaceChildren(
@@ -211,8 +211,8 @@
     const up = h.uptime / 86400;
     $('side-r').replaceChildren(
       gauge('CARGA', loadPct, h.load[0].toFixed(2), `${h.load.map((x) => x.toFixed(1)).join(' · ')}`),
-      gauge('EN LÍNEA', apps.length ? (onl / apps.length) * 100 : 0, `${onl}/${apps.length}`, 'proyectos', 'var(--ok)'),
-      gauge('CONTENEDORES', cts.length ? (run / cts.length) * 100 : 0, `${run}/${cts.length}`, `encendido ${up >= 1 ? Math.floor(up) + ' d' : Math.floor(h.uptime / 3600) + ' h'} · ${S.data.docker.ok ? 'Docker ok' : 'Docker sin conexión'}`, 'var(--ok)'));
+      gauge('EN LÍNEA', apps.length ? (onl / apps.length) * 100 : 0, `${onl}/${apps.length}`, 'proyectos', 'var(--ok)', true),
+      gauge('CONTENEDORES', cts.length ? (run / cts.length) * 100 : 0, `${run}/${cts.length}`, `encendido ${up >= 1 ? Math.floor(up) + ' d' : Math.floor(h.uptime / 3600) + ' h'} · ${S.data.docker.ok ? 'Docker ok' : 'Docker sin conexión'}`, 'var(--ok)', true));
   }
 
   /* ---------- Gráficos ---------- */
