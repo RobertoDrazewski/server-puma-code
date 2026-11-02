@@ -63,7 +63,7 @@ function resolveAction(user, a) {
 
 export async function chat(user, text, history = []) {
   const msgs = [
-    { role: 'system', content: `${PERSONA}\n${RULES}\nContexto actual de la estación:\n${JSON.stringify(context(user))}` },
+    { role: 'system', content: `${PERSONA}\n${RULES}\nLa persona que te escribe AHORA es ${user.call || user.name} (${user.email}). Llamala solo por ese nombre; no la confundas con otra persona del equipo.\nContexto actual de la estación:\n${JSON.stringify(context(user))}` },
     ...history.slice(-8).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || '').slice(0, 800) })),
     { role: 'user', content: String(text || '').slice(0, 800) },
   ];

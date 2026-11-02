@@ -53,7 +53,7 @@ Abrí http://localhost:3000 → **Acceso** → tu correo y la clave inicial; te 
 |---|---|
 | `ADMIN_EMAILS`, `VIEWER_EMAILS`, `BOOTSTRAP_PASSWORD` | Accesos iniciales (ver arriba) |
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `AI_DAILY_CALLS` | Orquestador. Modelo barato (`gpt-4o-mini`), tope de 20 llamadas/día y caché de 10 min. La key solo como variable en Coolify |
-| `EXTRA_URLS` | Sitios sin Traefik, ej. `kalyber=https://api.kalyber.com.ar` |
+| `EXTRA_URLS` | Sitios extra a vigilar, separados por coma: `https://sitio.com` o `proyecto=https://sitio.com`. Los dominios de Coolify se descubren solos |
 | `TERMINAL_ENABLED` | `0` para desactivar la terminal |
 | `GROUPS_FILE` | JSON opcional para agrupar proyectos (ver `config/groups.example.json`) |
 | `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` | Capa extra opcional de Cloudflare Access |
